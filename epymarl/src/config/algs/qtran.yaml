@@ -1,0 +1,39 @@
+# --- QTRAN specific parameters ---
+# epymarl ships the QTRAN learner/mixer but no config; this file restores the
+# original oxwhirl/pymarl qtran.yaml hyperparameters. Note the learner reads
+# pymarl-style target_update_interval (episodes), not target_update_interval_or_tau.
+
+# use epsilon greedy action selector
+action_selector: "epsilon_greedy"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 50000
+evaluation_epsilon: 0.0
+
+runner: "episode"
+
+buffer_size: 5000
+
+# update the target network every {} episodes
+target_update_interval: 200
+
+obs_agent_id: True
+obs_last_action: False
+obs_individual_obs: False
+
+agent_output_type: "q"
+learner: "qtran_learner"
+# the untouched pymarl qtran mixer sizes its input by rnn_hidden_dim; epymarl
+# renamed that to hidden_dim (default 64) -- keep the two equal
+rnn_hidden_dim: 64
+double_q: True
+mixer: "qtran_base"
+use_rnn: False
+mixing_embed_dim: 64
+qtran_arch: "qtran_paper"
+network_size: "small"
+
+opt_loss: 1
+nopt_min_loss: 0.1
+
+name: "qtran"

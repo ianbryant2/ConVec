@@ -1,0 +1,54 @@
+# --- Optimistic eps-greedy VDN (arXiv:2502.03506), non-shared variant ---
+# Ported from OptimisticExploration/config/algs/opt_vdn.yaml with the README's
+# matrix-game settings (w, buffer_size, target_update_interval, use_temp_norm,
+# use_norm); epsilon annealed over the run like the other baselines here.
+
+action_selector: "opt_selector"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 50000
+evaluation_epsilon: 0.0
+
+runner: "episode"
+
+buffer_size: 32
+
+# update the target network every {} episodes (original WQMIX-style episode counting)
+target_update_interval: 1
+
+obs_agent_id: False
+obs_last_action: False
+obs_individual_obs: False
+
+mac: "opt_mac"
+agent: "rnn_ns"
+use_rnn: False
+standardise_returns: False
+standardise_rewards: False
+
+agent_output_type: "q"
+learner: "opt_q_learner"
+double_q: True
+mixer: "vdn"
+
+central_loss: 1
+qmix_loss: 1
+
+central_mixing_embed_dim: 256
+central_action_embed: 1
+central_mac: "basic_central_mac"
+central_agent: "central_rnn_ns"
+central_mixer: "ff"
+
+name: "opt_vdn_ns"
+w: 0.01
+normal_start: 1.0
+normal_finish: 0
+normal_anneal_time: 50000
+
+use_temp_norm: False
+use_norm: False
+sum_opt: True
+normalmax: 1
+use_state: True
+use_internal: False

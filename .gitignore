@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+
+.envrc
+
+results/
+epymarl/results/
+archive/
+*.tar.gz
+
+.ipynb_checkpoints/
