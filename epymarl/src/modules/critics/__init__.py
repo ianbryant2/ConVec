@@ -24,7 +24,9 @@ def register_pac_critics():
     from .pac_ac import PACCritic
     from .pac_ac_ns import PACCriticNS
     from .pac_dcg_ns import DCGCriticNS
+    from .pac_max_ns import PACMaxCriticNS
 
     REGISTRY["pac_critic"] = PACCritic
     REGISTRY["pac_critic_ns"] = PACCriticNS
     REGISTRY["pac_dcg_critic_ns"] = DCGCriticNS
+    REGISTRY["pac_max_critic_ns"] = PACMaxCriticNS

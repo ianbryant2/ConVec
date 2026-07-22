@@ -4,6 +4,7 @@ from .qtran_learner import QLearner as QTranLearner
 from .actor_critic_learner import ActorCriticLearner
 from .actor_critic_pac_learner import PACActorCriticLearner
 from .actor_critic_pac_dcg_learner import PACDCGLearner
+from .actor_critic_pac_max_learner import PACActorCriticMaxLearner
 from .maddpg_learner import MADDPGLearner
 from .ppo_learner import PPOLearner
 from .opt_q_learner import OPTQLearner
@@ -20,6 +21,7 @@ REGISTRY["maddpg_learner"] = MADDPGLearner
 REGISTRY["ppo_learner"] = PPOLearner
 REGISTRY["pac_learner"] = PACActorCriticLearner
 REGISTRY["pac_dcg_learner"] = PACDCGLearner
+REGISTRY["pac_max_learner"] = PACActorCriticMaxLearner
 REGISTRY["opt_q_learner"] = OPTQLearner
 REGISTRY["max_q_learner"] = MAXQLearner
 REGISTRY["dmaq_qatten_learner"] = DMAQ_qattenLearner

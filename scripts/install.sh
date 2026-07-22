@@ -25,10 +25,16 @@ echo "using $("$PY" --version) at $(command -v "$PY")"
 .venv/bin/pip install -r requirements.txt
 
 # Smoke test: the imports the sweep needs, plus env registration.
-PYTHONPATH=. .venv/bin/python - <<'EOF'
+# mpe_envs' PettingZooWrapper entry point lives under epymarl/src, so that
+# needs to be on the path too (see mpe_envs/__init__.py).
+PYTHONPATH=.:epymarl/src .venv/bin/python - <<'EOF'
 import torch, torch_scatter, sacred
 import gymnasium as gym
 import matrix_envs
+import mpe_envs
+import lbforaging
 gym.make("climbing-2p-v0")
+gym.make("SimpleSpread-4ag-v0")
+gym.make("lbforaging:Foraging-8x8-2p-3f-v3")
 print(f"install OK: torch {torch.__version__}")
 EOF

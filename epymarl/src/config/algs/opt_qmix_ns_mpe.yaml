@@ -1,0 +1,63 @@
+# --- Optimistic eps-greedy QMIX (arXiv:2502.03506), non-shared, MPE variant ---
+# opt_qmix_ns.yaml swapped from the OptimisticExploration README's matrix-game
+# recipe to the shared MPE base (buffer 5000 / target 200, transferred from
+# EPyMARL's QMIX-ns MPE values — no MPE-tuned OptQMIX exists in any paper).
+# buffer 32 / target_update 1 were a one-step-episode convention; in this
+# 25-step env they meant training on ~30 episodes of near-online data with a
+# target net that never lagged.
+
+action_selector: "opt_selector"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 200000
+evaluation_epsilon: 0.0
+
+runner: "episode"
+
+buffer_size: 5000
+
+# update the target network every {} episodes (original WQMIX-style episode counting)
+target_update_interval: 200
+
+obs_agent_id: False
+obs_last_action: False
+obs_individual_obs: False
+
+mac: "opt_mac"
+agent: "rnn_ns"
+use_rnn: True
+standardise_returns: False
+standardise_rewards: False
+
+hidden_dim: 128
+lr: 0.0003
+
+agent_output_type: "q"
+learner: "opt_q_learner"
+double_q: True
+mixer: "qmix"
+mixing_embed_dim: 32
+hypernet_layers: 2
+hypernet_embed: 64
+
+central_loss: 1
+qmix_loss: 1
+
+central_mixing_embed_dim: 256
+central_action_embed: 1
+central_mac: "basic_central_mac"
+central_agent: "central_rnn_ns"
+central_mixer: "ff"
+
+name: "opt_qmix_ns_mpe"
+w: 0.01
+normal_start: 1.0
+normal_finish: 0
+normal_anneal_time: 200000
+
+use_temp_norm: False
+use_norm: False
+sum_opt: True
+normalmax: 1
+use_state: True
+use_internal: False

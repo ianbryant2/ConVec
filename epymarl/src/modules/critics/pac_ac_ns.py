@@ -38,9 +38,9 @@ class PACCriticNS(nn.Module):
 
         self.device = "cuda" if args.use_cuda else "cpu"
 
-    def forward(self, batch, t=None, compute_all=False):
-        if compute_all:
-            inputs, bs, max_t, other_actions = self._build_inputs_all(batch, t=t)
+    def forward(self, batch, t=None, compute_all=False, sample=False):
+        if compute_all or sample:
+            inputs, bs, max_t, other_actions = self._build_inputs_all(batch, t=t, sample=sample)
         else:
             inputs, bs, max_t, other_actions = self._build_inputs_cur(batch, t=t)
         qs = []
@@ -60,6 +60,13 @@ class PACCriticNS(nn.Module):
         return other_agents_actions
 
     def _gen_subsample_other_actions(self, batch, bs, max_t, sample_size):
+        """Draws one sample_size batch of the other agents' joint actions,
+        shared across all n_agents * n_actions (agent, own action) queries —
+        every own-action column reads the same batch, since one critics[i]
+        forward pass on one a_-i draw yields the value at every own action
+        at once (see forward()). Total draws: n_agents * sample_size, over
+        the (n_agents - 1) * n_actions other-agent joint action space.
+        """
         avail_actions = batch["avail_actions"]
 
         # ALL AVAIL ACTIONS ARE ZERO IF EPISODE HAS TERMINATED
@@ -68,6 +75,8 @@ class PACCriticNS(nn.Module):
 
         avail_dist = th.distributions.OneHotCategorical(probs=probs)
         sample = avail_dist.sample([sample_size])
+        # sample: (sample_size, bs, max_t, n_agents, n_actions)
+
         samples = []
         for i in range(self.n_agents):
             samples.append(
@@ -77,10 +86,12 @@ class PACCriticNS(nn.Module):
                 )
             )
         samples = th.stack(samples)
+        # samples: (n_agents, sample_size, bs, max_t, (n_agents-1)*n_actions)
         samples = rearrange(samples, "i j k l m -> k l i j m")
+        # samples: (bs, max_t, n_agents, sample_size, (n_agents-1)*n_actions)
         return samples
 
-    def _build_inputs_all(self, batch, t=None):
+    def _build_inputs_all(self, batch, t=None, sample=False):
         bs = batch.batch_size
         max_t = batch.max_seq_length if t is None else 1
 
@@ -125,7 +136,12 @@ class PACCriticNS(nn.Module):
 
         inputs = th.cat(inputs, dim=-1)
 
-        other_actions = self._gen_all_other_actions(batch, bs, max_t)
+        if sample:
+            other_actions = self._gen_subsample_other_actions(
+                batch, bs, max_t, self.args.sample_size
+            )
+        else:
+            other_actions = self._gen_all_other_actions(batch, bs, max_t)
 
         n_other_actions = other_actions.size(3)
 
