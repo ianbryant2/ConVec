@@ -12,16 +12,15 @@ EPYMARL = PROJECT / "epymarl"
 SACRED = EPYMARL / "results" / "sacred"
 LOGS = EPYMARL / "results" / "sweep_logs"
 
-ALGS = ["pac_max_ns"]  # config file/sacred name is pac_max_ns (pac_sarsa_max_ns)
+ALGS = ["pac_ns"]  # config file/sacred name is pac_max_ns (pac_sarsa_max_ns)
 
 # Level-Based Foraging, registered by lb-foraging/lbforaging/__init__.py.
 # Bare ids (no ":") are matrix_envs games, e.g. "climbing-3p-v0".
 ENVS = [
-    "lbforaging:Foraging-5x5-2p-1f-coop-v3",
-    "lbforaging:Foraging-5x5-3p-1f-v3",
+    "lbforaging:Foraging-5x5-2p-1f-pen-v3",
 ]
 
-SEEDS = [0, 1, 2]
+SEEDS = [0, 1]
 
 # Applied to every run. Matrix-game defaults: one-step episodes, small budget.
 BASE_OVERRIDES = [
@@ -32,7 +31,7 @@ BASE_OVERRIDES = [
         "test_nepisode": 20,          # greedy test episodes per evaluation point
     },
     {
-        "reward_scalarisation": "mean",  # logged return == game-table value
+        "reward_scalarisation": "sum",  # logged return == game-table value
         "use_cuda": False,
     },
 ]
@@ -45,12 +44,9 @@ ALG_OVERRIDES = {
 # Per-environment settings. LBF/MPE episodes are 25 steps and need a much
 # larger budget than the one-step matrix games in BASE_OVERRIDES.
 ENV_OVERRIDES = {
-    "lbforaging:Foraging-5x5-2p-1f-coop-v3": [
-        {"env_args.time_limit": 25, "t_max": 14_000_000, "test_interval": 140_000},
-    ],
-    "lbforaging:Foraging-5x5-3p-1f-v3": [
-        {"env_args.time_limit": 25, "t_max": 14_000_000, "test_interval": 140_000},
-    ],
+    "lbforaging:Foraging-5x5-2p-1f-pen-v3": [
+        {"env_args.time_limit": 25, "t_max": 14_000_000, "test_interval": 140_000, 'test_greedy' : False},
+    ]
 }
 
 # Mirrored from test_interval unless a dict above sets them explicitly.
@@ -167,7 +163,8 @@ def run_sweep(algs=ALGS, envs=ENVS, seeds=SEEDS, max_workers=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    print(__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--max-workers", type=int, default=None,
                         help="concurrent training subprocesses "
                              "(default: half the cores; each run is single-threaded)")
