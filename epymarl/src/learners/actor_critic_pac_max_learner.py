@@ -139,7 +139,13 @@ class PACActorCriticMaxLearner:
                 (pi.max(dim=-1)[0] * mask).sum().item() / mask.sum().item(),
                 t_env,
             )
-            for key in ["max_critic_loss", "max_critic_grad_norm", "max_critic_pred_error"]:
+            for key in [
+                "max_critic_loss",
+                "max_critic_grad_norm",
+                "max_critic_pred_error",
+                "max_critic_bias",
+                "sampled_max_bias",
+            ]:
                 self.logger.log_stat(key, max_critic_stats[key], t_env)
             self.log_stats_t = t_env
 
@@ -226,7 +232,12 @@ class PACActorCriticMaxLearner:
         Also logs how far max_critic's prediction sits from the exact
         combinatorial max (critic(..., compute_all=True).max(dim=3)) that
         train_critic() uses as pareto_ac's true advantage signal, as a check
-        on how good the sampled approximation is.
+        on how good the sampled approximation is. Two signed-bias diagnostics
+        split that gap into its two sources: max_critic_bias (pred vs. exact,
+        function-approximation + sampling error together) and
+        sampled_max_bias (the sampled_max training target itself vs. exact,
+        i.e. how biased a sample_size-sample max is as an estimator of the
+        true max -- no network involved).
         """
         with th.no_grad():
             sampled_q, _ = self.critic(batch, sample=True)
@@ -251,11 +262,15 @@ class PACActorCriticMaxLearner:
         self.max_critic_optimiser.step()
 
         pred_error = ((pred.detach() - exact_max).abs() * mask_exp).sum() / mask_exp.sum()
+        pred_bias = ((pred.detach() - exact_max) * mask_exp).sum() / mask_exp.sum()
+        sampled_max_bias = ((sampled_max - exact_max) * mask_exp).sum() / mask_exp.sum()
 
         return {
             "max_critic_loss": loss.item(),
             "max_critic_grad_norm": grad_norm.item(),
             "max_critic_pred_error": pred_error.item(),
+            "max_critic_bias": pred_bias.item(),
+            "sampled_max_bias": sampled_max_bias.item(),
         }
 
     def nstep_returns(self, rewards, mask, values, nsteps):

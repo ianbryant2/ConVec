@@ -10,3 +10,5 @@ archive/
 *.tar.gz
 
 .ipynb_checkpoints/
+
+.vscode

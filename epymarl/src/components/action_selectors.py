@@ -69,10 +69,14 @@ class SoftPoliciesSelector():
 
     def __init__(self, args):
         self.args = args
+        self.test_greedy = getattr(args, "test_greedy", True)
 
     def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
-        m = Categorical(agent_inputs)
-        picked_actions = m.sample().long()
+        if test_mode and self.test_greedy:
+            picked_actions = agent_inputs.max(dim=2)[1]
+        else:
+            m = Categorical(agent_inputs)
+            picked_actions = m.sample().long()
         return picked_actions
 
 
