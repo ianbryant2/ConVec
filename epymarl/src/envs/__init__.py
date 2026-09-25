@@ -5,6 +5,7 @@ import warnings
 
 from .multiagentenv import MultiAgentEnv
 from .gymma import GymmaWrapper
+from .budget_wrapper import BudgetWrapper
 
 try:
     from .smaclite_wrapper import SMACliteWrapper
@@ -42,9 +43,15 @@ def gymma_fn(**kwargs) -> MultiAgentEnv:
     return GymmaWrapper(**kwargs)
 
 
+def budget_fn(**kwargs) -> MultiAgentEnv:
+    assert "common_reward" in kwargs and "reward_scalarisation" in kwargs
+    return BudgetWrapper(**kwargs)
+
+
 REGISTRY = {}
 REGISTRY["smaclite"] = smaclite_fn
 REGISTRY["gymma"] = gymma_fn
+REGISTRY["budget"] = budget_fn
 
 
 # registering both smac and smacv2 causes a pysc2 error

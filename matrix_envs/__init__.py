@@ -25,8 +25,8 @@ Game.classify, which epymarl's runners aggregate and log as e.g.
 import gymnasium as gym
 import numpy as np
 
-from .games import (Game, anti_coordination, climbing, decorrelate, kwise,
-                   needle, overestimation_trap, penalty_game,
+from .games import (Game, anti_coordination, budget_table1, climbing, decorrelate,
+                   kwise, needle, overestimation_trap, penalty_game,
                    risky_coordination, stag_hunt)
 
 LABELS = ("optimal", "dominated_nash", "miscoordination", "other")
@@ -141,6 +141,8 @@ def register_game(env_id, game_fn, **game_kwargs):
 
 
 _TABLE = [
+    # Table 1 has conflicting individual rewards / Table 1 包含有冲突的个体奖励。
+    ("budget-table1-3p-v0", budget_table1, {}),
     # (A) relative overgeneralization
     *[(f"risky-coordination-{n}p-v0", risky_coordination, {"num_agents": n})
       for n in (2, 3, 4)],

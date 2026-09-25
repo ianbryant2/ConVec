@@ -306,6 +306,37 @@ def kwise(order=3, mix=1.0, groups=None, num_groups=None, rng=None):
 
 # ------------------------------------------------------------------- generators
 
+def budget_table1():
+    """Three-agent general-sum game from Table 1 of the budget writeup."""
+    # Axes: agent 1 action, agent 2 action, agent 3 action, recipient.
+    # 维度依次为三个智能体的动作和奖励接收者；A/B/C 对应 0/1/2。
+    rewards = np.zeros((3, 3, 3, 3), dtype=float)
+
+    # Agent 3 plays A. Rows: agent 1; columns: agent 2.
+    # 智能体 3 选择 A；行对应智能体 1，列对应智能体 2。
+    rewards[:, :, 0, :] = [
+        [[10, 10, 10], [8, 16, 7], [0, 0, 0]],
+        [[15, 8, 7],   [9, 9, 9],  [0, 0, 0]],
+        [[0, 0, 0],    [0, 0, 0],  [16, 0, 0]],
+    ]
+
+    # Agent 3 plays B / 智能体 3 选择 B。
+    rewards[:, :, 1, :] = [
+        [[8, 7, 14], [0, 0, 0],  [0, 0, 0]],
+        [[0, 0, 0],  [7, 7, 9],  [2, 15, 1]],
+        [[0, 0, 0],  [15, 2, 1], [0, 0, 0]],
+    ]
+
+    # Agent 3 plays C / 智能体 3 选择 C。
+    rewards[:, :, 2, :] = [
+        [[0, 0, 0], [0, 0, 0],  [0, 0, 0]],
+        [[0, 0, 0], [2, 1, 15], [3, 2, 2]],
+        [[0, 0, 0], [2, 3, 2],  [2, 2, 2]],
+    ]
+
+    return Game(rewards)
+
+
 def risky_coordination(num_agents=2, num_actions=3, reward=8.0, penalty=-12.0):
     """Failure (A): the matrix (a)/(b)/(c) family, generalized to N agents.
 

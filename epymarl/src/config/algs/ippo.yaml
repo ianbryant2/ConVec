@@ -22,9 +22,9 @@ obs_individual_obs: False
 # use IA2C
 agent_output_type: "pi_logits"
 learner: "ppo_learner"
-entropy_coef: 0.001
+entropy_coef: 10
 standardise_returns: False
-standardise_rewards: True
+standardise_rewards: False
 use_rnn: True
 q_nstep: 5 # 1 corresponds to normal r + gammaV
 critic_type: "ac_critic"
