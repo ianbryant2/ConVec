@@ -12,15 +12,13 @@ EPYMARL = PROJECT / "epymarl"
 SACRED = EPYMARL / "results" / "sacred"
 LOGS = EPYMARL / "results" / "sweep_logs"
 
-ALGS = ["pac_ns"]  # config file/sacred name is pac_max_ns (pac_sarsa_max_ns)
+ALGS = ["pac_ns_lbf"]
 
-# Level-Based Foraging, registered by lb-foraging/lbforaging/__init__.py.
-# Bare ids (no ":") are matrix_envs games, e.g. "climbing-3p-v0".
 ENVS = [
-    "lbforaging:Foraging-5x5-2p-1f-pen-v3",
+    "lbforaging:Foraging-5x5-2p-1f-coop-pen-v3",
 ]
 
-SEEDS = [0, 1]
+SEEDS = [1, 2]
 
 # Applied to every run. Matrix-game defaults: one-step episodes, small budget.
 BASE_OVERRIDES = [
@@ -37,16 +35,14 @@ BASE_OVERRIDES = [
 ]
 
 # Per-algorithm settings, e.g. {"pac_max_ns": [{"q_nstep": 5, "lr": 0.0005}]}.
-ALG_OVERRIDES = {
-    "pac_max_ns": [],
-}
+ALG_OVERRIDES = {}
 
-# Per-environment settings. LBF/MPE episodes are 25 steps and need a much
-# larger budget than the one-step matrix games in BASE_OVERRIDES.
+# Per-environment settings.
 ENV_OVERRIDES = {
-    "lbforaging:Foraging-5x5-2p-1f-pen-v3": [
-        {"env_args.time_limit": 25, "t_max": 14_000_000, "test_interval": 140_000, 'test_greedy' : False},
-    ]
+    "lbforaging:Foraging-5x5-2p-1f-coop-pen-v3": [
+        {"env_args.time_limit": 25, "t_max": 14_000_000, "test_interval": 140_000,
+         "test_greedy": False, "save_model": True},
+    ],
 }
 
 # Mirrored from test_interval unless a dict above sets them explicitly.
