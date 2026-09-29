@@ -13,8 +13,10 @@ class PettingZooWrapper(gym.Env):
         "render_fps": 5,
     }
 
-    def __init__(self, lib_name, env_name, **kwargs):
-        env = importlib.import_module(f"pettingzoo.{lib_name}.{env_name}")
+    def __init__(self, lib_name=None, env_name=None, module=None, **kwargs):
+        # module: import path of a PettingZoo-style env module outside the
+        # pettingzoo package (e.g. mpe_envs.selfish_spread).
+        env = importlib.import_module(module or f"pettingzoo.{lib_name}.{env_name}")
         self._env = env.parallel_env(**kwargs)
         self._env.reset()
 

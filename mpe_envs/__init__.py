@@ -31,3 +31,10 @@ for n in range(2, 11):
         entry_point="envs.pz_wrapper:PettingZooWrapper",
         kwargs={"lib_name": "mpe", "env_name": "simple_spread_v3", "N": n},
     )
+    # Individual rewards: own distance to nearest landmark + own collisions
+    # (selfish_spread.py). Set the penalty with env_args.collision_penalty.
+    gym.register(
+        f"SelfishSpread-{n}ag-v0",
+        entry_point="envs.pz_wrapper:PettingZooWrapper",
+        kwargs={"module": "mpe_envs.selfish_spread", "N": n},
+    )
