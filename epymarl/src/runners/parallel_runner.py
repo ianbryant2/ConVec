@@ -1,5 +1,6 @@
 from functools import partial
 from multiprocessing import Pipe, Process
+import traceback
 
 import numpy as np
 
@@ -48,6 +49,8 @@ class ParallelRunner:
 
         self.parent_conns[0].send(("get_env_info", None))
         self.env_info = self.parent_conns[0].recv()
+        if isinstance(self.env_info, tuple) and self.env_info[0] == "env_error":
+            raise RuntimeError(f"env worker failed to start:\n{self.env_info[1]}")
         self.episode_limit = self.env_info["episode_limit"]
 
         self.t = 0
@@ -287,7 +290,12 @@ class ParallelRunner:
 
 def env_worker(remote, env_fn):
     # Make environment
-    env = env_fn.x()
+    try:
+        env = env_fn.x()
+    except Exception:
+        # Report the failure; otherwise the parent blocks on recv() forever.
+        remote.send(("env_error", traceback.format_exc()))
+        raise
     while True:
         cmd, data = remote.recv()
         if cmd == "step":
