@@ -2,6 +2,7 @@ from functools import partial
 
 import numpy as np
 
+from components.budget_concession import RunnerConcession, pop_budget_step_data
 from components.episode_buffer import EpisodeBatch
 from envs import REGISTRY as env_REGISTRY
 from envs import register_smac, register_smacv2
@@ -30,6 +31,9 @@ class EpisodeRunner:
         self.t = 0
 
         self.t_env = 0
+        # Env steps of exploration rollouts (components/concession_exploration.py),
+        # kept out of t_env.
+        self.t_explore = 0
 
         self.train_returns = []
         self.test_returns = []
@@ -50,6 +54,7 @@ class EpisodeRunner:
             device=self.args.device,
         )
         self.mac = mac
+        self.concession_hook = RunnerConcession.maybe_create(self.args)
 
     def get_env_info(self):
         return self.env.get_env_info()
@@ -65,7 +70,11 @@ class EpisodeRunner:
         self.env.reset()
         self.t = 0
 
-    def run(self, test_mode=False):
+    def run(self, test_mode=False, explorer=None):
+        """One episode. With an explorer, actions come from it instead of the
+        agents and the rollout only trains the concession model: it does not
+        advance t_env and is not logged or returned for the learner's buffer."""
+        assert explorer is None or not test_mode
         self.reset()
 
         terminated = False
@@ -86,11 +95,17 @@ class EpisodeRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self.mac.select_actions(
-                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
-            )
+            actions = self._select_actions(test_mode, explorer)
 
-            _, reward, terminated, truncated, env_info = self.env.step(actions[0])
+            env_action = actions[0]
+            if self.concession_hook is not None:
+                env_action = self.concession_hook.env_actions(
+                    self.batch["state"][:, self.t],
+                    actions,
+                    self.batch["avail_actions"][:, self.t],
+                    self.t,
+                )[0]
+            _, reward, terminated, truncated, env_info = self.env.step(env_action)
             terminated = terminated or truncated
             if test_mode and self.args.render:
                 self.env.render()
@@ -104,6 +119,8 @@ class EpisodeRunner:
                 post_transition_data["reward"] = [(reward,)]
             else:
                 post_transition_data["reward"] = [tuple(reward)]
+            for k, v in pop_budget_step_data(env_info).items():
+                post_transition_data[k] = [v]
 
             self.batch.update(post_transition_data, ts=self.t)
 
@@ -119,10 +136,15 @@ class EpisodeRunner:
         self.batch.update(last_data, ts=self.t)
 
         # Select actions in the last stored state
-        actions = self.mac.select_actions(
-            self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
-        )
+        actions = self._select_actions(test_mode, explorer)
         self.batch.update({"actions": actions}, ts=self.t)
+
+        if explorer is not None:
+            self.t_explore += self.t
+            self.concession_hook.train(
+                self.batch, self.t_env, self.logger, record_deltas=False
+            )
+            return None
 
         cur_stats = self.test_stats if test_mode else self.train_stats
         cur_returns = self.test_returns if test_mode else self.train_returns
@@ -138,6 +160,8 @@ class EpisodeRunner:
 
         if not test_mode:
             self.t_env += self.t
+            if self.concession_hook is not None:
+                self.concession_hook.train(self.batch, self.t_env, self.logger)
 
         cur_returns.append(episode_return)
 
@@ -152,6 +176,20 @@ class EpisodeRunner:
             self.log_train_stats_t = self.t_env
 
         return self.batch
+
+    def _select_actions(self, test_mode, explorer):
+        if explorer is None:
+            return self.mac.select_actions(
+                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
+            )
+        return explorer.select_actions(
+            self.mac,
+            self.batch,
+            t_ep=self.t,
+            t_env=self.t_env,
+            bs=slice(None),
+            avail_actions=self.batch["avail_actions"][:, self.t],
+        )
 
     def _log(self, returns, stats, prefix):
         if self.args.common_reward:

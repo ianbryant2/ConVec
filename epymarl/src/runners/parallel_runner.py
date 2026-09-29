@@ -4,6 +4,7 @@ import traceback
 
 import numpy as np
 
+from components.budget_concession import RunnerConcession, pop_budget_step_data
 from components.episode_buffer import EpisodeBatch
 from envs import REGISTRY as env_REGISTRY
 from envs import register_smac, register_smacv2
@@ -56,6 +57,9 @@ class ParallelRunner:
         self.t = 0
 
         self.t_env = 0
+        # Env steps of exploration rollouts (components/concession_exploration.py),
+        # kept out of t_env.
+        self.t_explore = 0
 
         self.train_returns = []
         self.test_returns = []
@@ -78,6 +82,7 @@ class ParallelRunner:
         self.scheme = scheme
         self.groups = groups
         self.preprocess = preprocess
+        self.concession_hook = RunnerConcession.maybe_create(self.args)
 
     def get_env_info(self):
         return self.env_info
@@ -109,7 +114,11 @@ class ParallelRunner:
         self.t = 0
         self.env_steps_this_run = 0
 
-    def run(self, test_mode=False):
+    def run(self, test_mode=False, explorer=None):
+        """One episode per env. With an explorer, actions come from it instead of
+        the agents and the rollout only trains the concession model: it does not
+        advance t_env and is not logged or returned for the learner's buffer."""
+        assert explorer is None or not test_mode
         self.reset()
 
         all_terminated = False
@@ -130,13 +139,23 @@ class ParallelRunner:
         while True:
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch for each un-terminated env
-            actions = self.mac.select_actions(
-                self.batch,
-                t_ep=self.t,
-                t_env=self.t_env,
-                bs=envs_not_terminated,
-                test_mode=test_mode,
-            )
+            if explorer is None:
+                actions = self.mac.select_actions(
+                    self.batch,
+                    t_ep=self.t,
+                    t_env=self.t_env,
+                    bs=envs_not_terminated,
+                    test_mode=test_mode,
+                )
+            else:
+                actions = explorer.select_actions(
+                    self.mac,
+                    self.batch,
+                    t_ep=self.t,
+                    t_env=self.t_env,
+                    bs=envs_not_terminated,
+                    avail_actions=self.batch["avail_actions"][envs_not_terminated, self.t],
+                )
             cpu_actions = actions.to("cpu").numpy()
 
             # Update the actions taken
@@ -145,6 +164,15 @@ class ParallelRunner:
                 actions_chosen, bs=envs_not_terminated, ts=self.t, mark_filled=False
             )
 
+            env_actions = cpu_actions
+            if self.concession_hook is not None:
+                env_actions = self.concession_hook.env_actions(
+                    self.batch["state"][envs_not_terminated, self.t],
+                    actions,
+                    self.batch["avail_actions"][envs_not_terminated, self.t],
+                    self.t,
+                )
+
             # Send actions to each env
             action_idx = 0
             for idx, parent_conn in enumerate(self.parent_conns):
@@ -152,7 +180,7 @@ class ParallelRunner:
                     if not terminated[
                         idx
                     ]:  # Only send the actions to the env if it hasn't terminated
-                        parent_conn.send(("step", cpu_actions[action_idx]))
+                        parent_conn.send(("step", env_actions[action_idx]))
                     action_idx += 1  # actions is not a list over every env
                     if idx == 0 and test_mode and self.args.render:
                         parent_conn.send(("render", None))
@@ -176,6 +204,8 @@ class ParallelRunner:
                     data = parent_conn.recv()
                     # Remaining data for this current timestep
                     post_transition_data["reward"].append((data["reward"],))
+                    for k, v in pop_budget_step_data(data["info"]).items():
+                        post_transition_data.setdefault(k, []).append(v)
 
                     episode_returns[idx] += data["reward"]
                     episode_lengths[idx] += 1
@@ -213,8 +243,17 @@ class ParallelRunner:
                 pre_transition_data, bs=envs_not_terminated, ts=self.t, mark_filled=True
             )
 
+        if explorer is not None:
+            self.t_explore += self.env_steps_this_run
+            self.concession_hook.train(
+                self.batch, self.t_env, self.logger, record_deltas=False
+            )
+            return None
+
         if not test_mode:
             self.t_env += self.env_steps_this_run
+            if self.concession_hook is not None:
+                self.concession_hook.train(self.batch, self.t_env, self.logger)
 
         # Get stats back for each env
         for parent_conn in self.parent_conns:

@@ -10,6 +10,8 @@ from types import SimpleNamespace as SN
 import torch as th
 
 from controllers import REGISTRY as mac_REGISTRY
+from components.budget_concession import add_budget_scheme
+from components.concession_exploration import ConcessionExploration
 from components.episode_buffer import ReplayBuffer
 from components.transforms import OneHot
 from learners import REGISTRY as le_REGISTRY
@@ -122,6 +124,7 @@ def run_sequential(args, logger):
         scheme["reward"] = {"vshape": (1,)}
     else:
         scheme["reward"] = {"vshape": (args.n_agents,)}
+    add_budget_scheme(scheme, args)
     groups = {"agents": args.n_agents}
     preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
 
@@ -193,12 +196,19 @@ def run_sequential(args, logger):
     start_time = time.time()
     last_time = start_time
 
+    # Extra rollouts that only train a learned concession model (budget.exploration).
+    exploration = ConcessionExploration.maybe_create(args, logger)
+    if exploration is not None:
+        exploration.warmup(runner)
+
     logger.console_logger.info("Beginning training for {} timesteps".format(args.t_max))
 
     while runner.t_env <= args.t_max:
         # Run for a whole episode at a time
         episode_batch = runner.run(test_mode=False)
         buffer.insert_episode_batch(episode_batch)
+        if exploration is not None:
+            exploration.after_training_rollout(runner)
 
         if buffer.can_sample(args.batch_size):
             episode_sample = buffer.sample(args.batch_size)

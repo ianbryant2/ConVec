@@ -18,6 +18,7 @@ import torch as th
 
 from utils.logging import get_logger
 from run import run
+from envs.budget import get_rule
 
 SETTINGS["CAPTURE_MODE"] = (
     "fd"  # set to "no" if you want to see stdout/stderr in console
@@ -32,6 +33,16 @@ results_path = os.path.join(dirname(dirname(abspath(__file__))), "results")
 # results_path = "/home/ubuntu/data"
 
 
+@ex.config_hook
+def budget_reward_setting(config, command_name, logger):
+    """Budget runs take common_reward from their budget rule. An explicit
+    common_reward=... on the command line still wins; BudgetWrapper rejects a
+    mismatch."""
+    if not config.get("budget", {}).get("enabled"):
+        return {}
+    return {"common_reward": get_rule(config["budget"]["rule"]).common}
+
+
 @ex.main
 def my_main(_run, _config, _log):
     # Setting the random seed throughout the modules
@@ -39,6 +50,22 @@ def my_main(_run, _config, _log):
     np.random.seed(config["seed"])
     th.manual_seed(config["seed"])
     config["env_args"]["seed"] = config["seed"]
+
+    # The budget wraps the env inside each env process (envs/__init__.py), so
+    # the settings the env needs travel with env_args. The concession settings
+    # stay with the runner, which computes delta.
+    if config["budget"]["enabled"]:
+        if config["env"] != "gymma":
+            raise ValueError(f"budget.enabled needs env 'gymma', got '{config['env']}'")
+        budget = config["budget"]
+        config["env_args"]["budget"] = {
+            "rule": budget["rule"],
+            "initial_budget": budget["initial_budget"],
+            "observe_budget": budget["observe_budget"],
+            # Budget charges are discounted with the learner's gamma, so the
+            # gamma^-t in the budget reward cancels the learner's discount.
+            "gamma": config["gamma"],
+        }
 
     # run the framework
     run(_run, config, _log)
