@@ -49,6 +49,12 @@ budget:
       loss: "mse"  # TD loss: "mse" or "huber"
       layer_norm: False  # LayerNorm after each hidden layer
       reward_range: null  # [r_min, r_max] of one step's reward: clamps bootstrapped values to the Q* range
+      # Prioritised replay (torchrl): each critic samples its buffer by TD error
+      # (its worst-fit agent head), new transitions at the highest priority.
+      replay:
+        prioritized: False
+        alpha: 0.6  # how strongly priorities skew sampling (0 = uniform)
+        beta: 0.4  # importance weights undoing that skew in the loss (0 = none, 1 = fully)
       data:
         policy_fraction: 1.0  # share of the agents' training episodes it is given, in [0, 1] (0: exploration only)
         explore_policy: null  # its own exploration episodes, e.g. "random"; null: none
@@ -75,6 +81,10 @@ budget:
       loss: "mse"
       layer_norm: False
       reward_range: null
+      replay:
+        prioritized: False
+        alpha: 0.6
+        beta: 0.4
       data:
         policy_fraction: 1.0
         explore_policy: null

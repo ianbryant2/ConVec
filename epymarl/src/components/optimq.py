@@ -10,6 +10,8 @@ is a single action; delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t).
 - Off-policy double-Q TD targets with soft-updated target nets.
 - Optional stabilisers: Huber loss, LayerNorm, and reward_range, which clamps
   bootstrapped values to the range Q* can take.
+- Optional prioritised replay (replay.prioritized): each critic samples its
+  buffer by TD error (torchrl's segment-tree buffer), with importance weights.
 
 Output size grows as n_actions ** n_agents.
 """
@@ -37,6 +39,7 @@ class OptimQ:
         loss,
         layer_norm,
         reward_range,
+        replay=None,
     ):
         # Defaults live in config/envs/gymma_budget.yaml (budget.concession_args.optimq);
         # its data and training blocks go to components/concession_training.py.
@@ -82,9 +85,17 @@ class OptimQ:
         # Each transition trains only one critic, so their estimation errors are
         # independent; with shared data both would fit the same noisy averages and
         # the double estimator would reduce to the single one.
-        self.buffers = [
-            _TransitionBuffer(buffer_size // 2, self.device) for _ in self.critics
-        ]
+        replay = replay or {}
+        if replay.get("prioritized"):
+            self.buffers = [
+                _PrioritizedTransitionBuffer(buffer_size // 2, batch_size, replay["alpha"],
+                                             replay["beta"], self.device)
+                for _ in self.critics
+            ]
+        else:
+            self.buffers = [
+                _TransitionBuffer(buffer_size // 2, self.device) for _ in self.critics
+            ]
         self.batch_size = batch_size
         self.target_tau = target_tau
         self.grad_clip = grad_clip
@@ -136,7 +147,7 @@ class OptimQ:
         if n_steps < 1 or min(len(b) for b in self.buffers) < self.batch_size:
             return None
         steps = [
-            self._train_step(critic, buffer.sample(self.batch_size))
+            self._train_step(critic, buffer)
             for _ in range(n_steps)
             for critic, buffer in zip(self.critics, self.buffers)
         ]
@@ -154,7 +165,8 @@ class OptimQ:
             stats["concession_clip_frac"] = sum(clipped) / len(clipped)
         return stats
 
-    def _train_step(self, critic, b):
+    def _train_step(self, critic, buffer):
+        b = buffer.sample(self.batch_size)
         inputs = self._inputs(b["state"], b["t"])
         next_inputs = self._inputs(b["next_state"], b["t"] + 1)
         q_taken = critic.q_at(critic.net, inputs, self._joint_index(b["actions"])).squeeze(-1)
@@ -175,11 +187,17 @@ class OptimQ:
                 next_value = th.minimum(th.maximum(next_value, low), high)
             target = b["env_reward"] + self.gamma * (1 - b["terminated"]) * next_value
 
-        loss = self.loss_fn(q_taken, target)
+        # Mean over agents and samples; prioritised samples carry importance
+        # weights (1 for the uniform buffer, which makes this the plain mean).
+        per_sample = self.loss_fn(q_taken, target, reduction="none").mean(-1)
+        loss = (b["weight"] * per_sample).mean() if "weight" in b else per_sample.mean()
         critic.optimiser.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(critic.net.parameters(), self.grad_clip)
         critic.optimiser.step()
+        if "index" in b:
+            # A transition's priority is its worst-fit agent head.
+            buffer.update(b["index"], (q_taken - target).detach().abs().amax(-1))
 
         with th.no_grad():
             for p, tp in zip(critic.net.parameters(), critic.target_net.parameters()):
@@ -243,3 +261,51 @@ class _TransitionBuffer:
     def sample(self, batch_size):
         idx = th.randint(self.size, (batch_size,), device=self.device)
         return {k: v[idx] for k, v in self.data.items()}
+
+
+class _PrioritizedTransitionBuffer:
+    """Fixed-size FIFO sampled by priority (torchrl's segment-tree buffer).
+
+    New transitions enter at the highest priority seen so far, so each is
+    sampled soon after it arrives; training sets priorities to TD errors.
+    alpha skews sampling towards high priorities (0 = uniform); beta sets how
+    much the importance weights undo that skew in the loss (0 = not at all).
+    """
+
+    def __init__(self, capacity, batch_size, alpha, beta, device):
+        from tensordict import TensorDict
+        from torchrl.data.replay_buffers import LazyTensorStorage, TensorDictPrioritizedReplayBuffer
+
+        self._TensorDict = TensorDict
+        self.memory = TensorDictPrioritizedReplayBuffer(
+            alpha=alpha,
+            beta=beta,
+            eps=1e-6,
+            priority_key="td_error",
+            storage=LazyTensorStorage(max_size=capacity, device=device),
+            batch_size=batch_size,
+        )
+        self.device = device
+        self.batch_size = batch_size
+        self.max_priority = th.tensor(1.0, device=device)
+
+    def __len__(self):
+        return len(self.memory)
+
+    def add(self, transitions):
+        n = len(transitions["state"])
+        data = {k: v.to(self.device) for k, v in transitions.items()}
+        data["td_error"] = self.max_priority.expand(n).clone()
+        self.memory.extend(self._TensorDict(data, batch_size=[n]))
+
+    def sample(self, batch_size):
+        if batch_size != self.batch_size:
+            raise ValueError(f"buffer built for batches of {self.batch_size}, asked for {batch_size}")
+        batch = self.memory.sample()
+        out = {k: v for k, v in batch.items() if k not in ("td_error", "_weight")}
+        out["weight"] = batch["_weight"].to(self.device).float()
+        return out
+
+    def update(self, index, priority):
+        self.max_priority = th.maximum(self.max_priority, priority.max())
+        self.memory.update_priority(index, priority)
