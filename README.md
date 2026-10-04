@@ -18,8 +18,9 @@ variants throughout.
 | [set_eval/set_evaluators.py](set_eval/set_evaluators.py), [test_set_evals.ipynb](test_set_evals.ipynb) | Tabular/factored set evaluators (expectile/quantile fits) and their tests |
 | [set_eval/dataset_builder.py](set_eval/dataset_builder.py) | Synthetic value-table distributions (pairwise/k-wise structure) |
 | [epymarl/](epymarl/) | Vendored epymarl with the ported algorithms ([VENDORED.md](epymarl/VENDORED.md)) |
-| [scripts/run_sweep.py](scripts/run_sweep.py) | Sweep runner (algorithms × envs × seeds) |
+| [scripts/sweeps/](scripts/sweeps/) | YAML sweeps: each `<sweep>.yaml` crosses axes (alg × env × any others × seeds) built from [presets/](scripts/sweeps/presets/); `python scripts/sweeps list / status / show / run <sweep> [axis=option ...]`. Format and merge order in [engine.py](scripts/sweeps/engine.py). The old `run_sweep.py` is at git tag `sweep-legacy` |
 | [scripts/load_results.py](scripts/load_results.py) | Sacred runs → one long DataFrame, a row per (run, evaluation point) |
+| [scripts/run_catalog.yaml](scripts/run_catalog.yaml) | Every completed sacred run, grouped by the settings it was launched with: a label, run numbers, seeds and the exact overrides per group. Look up a run here; rebuild and query with [scripts/run_catalog.py](scripts/run_catalog.py) |
 | [scripts/plotting.py](scripts/plotting.py) | That DataFrame → one panel per call; notebooks only choose the layout |
 
 

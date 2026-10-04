@@ -1,0 +1,9 @@
+# Hand-written labels and notes for run_catalog.yaml groups, keyed by group id
+# (the 8-character "id" in run_catalog.yaml). Both fields are optional:
+#
+#   3fa9c2d1:
+#     label: SelfishSpread-3ag/pac_sarsa_ns/potential-explore-only
+#     note: Section 2 of selfish_spread_collision.ipynb; OptimQ diverged by 150k.
+#
+# Rebuild after editing: python scripts/run_catalog.py build
+{}

@@ -1,0 +1,65 @@
+# Every env a sweep can use: its family (picks the alg settings in algs.yaml
+# and the step scaling) and its settings. Budget envs set only what belongs to
+# the env (enabled, initial_budget); the rule and concession model are the
+# sweep's choice.
+
+envs:
+  # --- matrix games (one-step) -------------------------------------------------
+  # Table 1 with c = (6, 6, 5): only (A, A, A) stays within budget.
+  table1:
+    family: matrix
+    settings:
+      env_args: {key: "matrix_envs:budget-table1-3p-v0", time_limit: 1}
+      t_max: 50_000              # environment steps per run
+      test_interval: 1_000       # -> ~50 greedy evaluation points per curve
+      budget: {enabled: true, initial_budget: [6.0, 6.0, 5.0]}
+
+  # --- SelfishSpread (25-step MPE episodes) --------------------------------
+  # 3 agents: agent 0 has priority (budget 1, about a typical conflict), the
+  # others give way (50 each, effectively unconstrained). No payoff table, so
+  # delta comes from a learned critic. 300k steps: OptimQ diverged within 25k
+  # (VDN) and 150k (PAC) steps in the 1M-step runs, so this is enough to see
+  # whether a setting stays stable.
+  selfish_spread:
+    family: mpe
+    settings:
+      env_args: {key: "mpe_envs:SelfishSpread-3ag-v0", time_limit: 25}
+      t_max: 300_000
+      test_interval: 25_000
+      budget: {enabled: true, initial_budget: [1.0, 50.0, 50.0]}
+  # Two agents within d count as collided in the reward (default 0.3, the sum
+  # of their sizes). d must be in mpe_envs.COLLISION_DISTANCES. `extends` takes
+  # the named env's family and settings, then applies these on top.
+  selfish_spread_col0.4:
+    extends: selfish_spread
+    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.4-v0"}}
+  selfish_spread_col0.5:
+    extends: selfish_spread
+    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.5-v0"}}
+  selfish_spread_col0.6:
+    extends: selfish_spread
+    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.6-v0"}}
+  selfish_spread_col0.8:
+    extends: selfish_spread
+    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.8-v0"}}
+  selfish_spread_col1:
+    extends: selfish_spread
+    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col1-v0"}}
+
+  # --- Level-Based Foraging ------------------------------------------------
+  # 3 level-1 agents, 2 apples paying 1/2 each, split among the agents loading
+  # it (lbf_envs/__init__.py). Agent 0 should eat one apple alone and agents 1
+  # and 2 share the other, conceding about [0.47, 0.75, 0.75]; the budget allows
+  # that and rules out the alternatives (the closest, all three sharing the
+  # second apple, sits right at 0.8 for agents 1 and 2). t_max is the
+  # value-based budget; PAC's is 10x (algs.yaml step_scale): 14M as in the
+  # Pareto-AC paper's LBF runs, 56k iterations of 25-step episodes. 100
+  # evaluations of 100 episodes (EPyMARL's evaluation size).
+  lbf_3p_2f_budget:
+    family: lbf
+    settings:
+      env_args: {key: "lbf_envs:Foraging-5x5-3p-2f-budget-v0", time_limit: 25}
+      t_max: 1_400_000
+      test_interval: 14_000
+      test_nepisode: 100
+      budget: {enabled: true, initial_budget: [0.55, 0.8, 0.8], observe_budget: all}

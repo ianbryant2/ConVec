@@ -44,4 +44,4 @@ agent: "rnn_ns"
 use_rnn: False
 standardise_returns: False
 standardise_rewards: False
-name: "qplex_ns"   # required: run_sweep.sacred_name() parses this
+name: "qplex_ns"   # required: main.py names the sacred results dir after it

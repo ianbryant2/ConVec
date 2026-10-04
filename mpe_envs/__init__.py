@@ -9,7 +9,7 @@ same pattern as matrix_envs.
 The entry point is epymarl's own PettingZooWrapper, resolved lazily at
 gym.make time, so this module needs epymarl/src on sys.path only when an env
 is actually constructed (true for training subprocesses launched by
-run_sweep), not when imported for id listing or results analysis.
+scripts/sweeps), not when imported for id listing or results analysis.
 
 Run from the epymarl directory with this project's root on PYTHONPATH:
 

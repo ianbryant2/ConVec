@@ -1,0 +1,5 @@
+# Applied first to every run of every sweep; anything later overrides it.
+defaults:
+  test_nepisode: 20              # greedy test episodes per evaluation point
+  reward_scalarisation: sum      # logged return == sum of agent rewards (game-table value)
+  use_cuda: false

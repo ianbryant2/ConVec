@@ -1,0 +1,103 @@
+# Named settings blocks ("profiles") for the concession model, usable by name
+# anywhere a sweep takes settings (base or an axis option, alone or in a
+# list merged left to right).
+#
+# `concession:` is the learned model's block: `model` picks it
+# (budget.concession) and every other key goes to
+# budget.concession_args.<model>, so the same profiles work for optimq and
+# optimq_additive_linear. Options and their defaults:
+# epymarl/src/config/envs/gymma_budget.yaml; data/training:
+# epymarl/src/components/concession_training.py.
+
+profiles:
+  # --- per env family ---------------------------------------------------
+  # OptimQ takes replay_ratio gradient steps per critic per new transition,
+  # whatever the runner. 0.08 is what the earlier per-rollout settings came
+  # to: 20 steps per 250-transition parallel rollout (PAC) and 2 per
+  # 25-transition episode rollout (the rest).
+  mpe_optimq:
+    concession: {model: optimq, training: {replay_ratio: 0.08}}
+
+  # LBF: a 100k-step random-play warmup; the data itself comes from the
+  # sweep (lbf_own / lbf_explore_only). Data is counted per agent episode, so
+  # PAC's parallel runner (10 episodes per learner update) gives its OptimQ
+  # 10x the data and steps of the episode runner's. The stable fixes, with
+  # LBF's reward range (an apple pays at most 1/2; the SelfishSpread [-8, 0]
+  # would clamp every positive target to 0).
+  lbf_optimq:
+    concession:
+      model: optimq
+      data: {explore_policy: random, warmup_steps: 100_000}
+      training: {replay_ratio: 0.08}   # the old 8 steps per 4 new 25-step episodes
+      target_tau: 0.005
+      loss: huber
+      layer_norm: true
+      reward_range: [0.0, 1.0]
+
+  # --- critic stability -------------------------------------------------
+  # Every fix together: 0.16 critic steps per transition (from 0.8, ~8 samples
+  # per transition as in DQN), a slower target net, Huber loss, LayerNorm and
+  # bootstrapped values clamped to the Q* range. SelfishSpread rewards are
+  # -distance - collisions, so r_max = 0; r_min = -8 is loose (random play
+  # reaches -4.0).
+  stable:
+    concession:
+      training: {replay_ratio: 0.16}
+      target_tau: 0.005
+      loss: huber
+      layer_norm: true
+      reward_range: [-8.0, 0.0]
+  # stable without the clamp, to see whether the rest holds without it.
+  stable_noclip: [stable, {concession: {reward_range: null}}]
+  # Only the step and target-net changes.
+  slow: [stable, {concession: {loss: mse, layer_norm: false, reward_range: null}}]
+
+  # Prioritised replay: each critic samples its buffer by TD error (its
+  # worst-fit agent head), with importance weights. Aimed at the terminal
+  # last-apple loads on LBF, whose TD targets are exact but under-fit
+  # (lbf_critic_diagnosis.ipynb, section 5).
+  per:
+    concession: {replay: {prioritized: true, alpha: 0.6, beta: 0.4}}
+
+  # --- the critic's data ------------------------------------------------
+  no_explore:
+    concession: {data: {explore_policy: null}}
+  # Fills OptimQ's 100k-transition buffer with random play before training.
+  # policy_fraction is set explicitly so these runs are told apart from
+  # explore_only's.
+  warmup:
+    concession: {data: {explore_policy: random, warmup_steps: 100_000, policy_fraction: 1.0}}
+  # After the warmup, exploration episodes at a rate per agent episode
+  # annealed from 1/4 to 1/16 over 200k steps: about 20% of OptimQ's data is
+  # exploration at first and 6% later. It never reaches zero, as the FIFO
+  # buffer loses the warmup data within ~100k agent steps.
+  explore_rollouts:
+    concession:
+      data:
+        explore: anneal
+        explore_args: {anneal: {start: 0.25, finish: 0.0625, anneal_time: 200_000, decay: linear}}
+  # OptimQ trained only on exploration (random-play) episodes, never on the
+  # agents' own, so the policy cannot shape the data Q* is fitted to. One
+  # exploration episode per agent episode keeps OptimQ's data (and so its
+  # gradient steps) the same as when it trained on the agents' episodes.
+  explore_only:
+    concession: {data: {policy_fraction: 0.0, explore: constant, explore_args: {constant: {rate: 1.0}}}}
+
+  # Matrix games (50k one-step episodes): a 5k-step warmup (~185 random
+  # samples per joint action of the 27), exploration annealed over 50k.
+  matrix_explore:
+    concession:
+      data:
+        explore_policy: random
+        warmup_steps: 5_000
+        policy_fraction: 1.0
+        explore: anneal
+        explore_args: {anneal: {start: 0.25, finish: 0.0625, anneal_time: 50_000, decay: linear}}
+
+  # LBF: 4 new episodes per agent episode in both, so they differ only in
+  # where the data comes from. own: the agents' episodes + 3 exploration
+  # episodes each. explore_only: 4 exploration episodes each.
+  lbf_own:
+    concession: {data: {policy_fraction: 1.0, explore: constant, explore_args: {constant: {rate: 3.0}}}}
+  lbf_explore_only:
+    concession: {data: {policy_fraction: 0.0, explore: constant, explore_args: {constant: {rate: 4.0}}}}
