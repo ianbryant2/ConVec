@@ -25,6 +25,12 @@ GymmaWrapper into the PettingZoo constructor, as do local_ratio etc.).
 
 import gymnasium as gym
 
+# Collision distances with their own SelfishSpread ids, e.g.
+# mpe_envs:SelfishSpread-3ag-col0.5-v0. The plain SelfishSpread-{N}ag-v0 keeps
+# simple_spread's default (0.3, the sum of two agents' sizes); add a value here
+# to get an id for it.
+COLLISION_DISTANCES = (0.3, 0.4, 0.5, 0.6, 0.8, 1.0)
+
 for n in range(2, 11):
     gym.register(
         f"SimpleSpread-{n}ag-v0",
@@ -38,3 +44,11 @@ for n in range(2, 11):
         entry_point="envs.pz_wrapper:PettingZooWrapper",
         kwargs={"module": "mpe_envs.selfish_spread", "N": n},
     )
+    # The same, counting two agents as collided when closer than d. The
+    # distance is in the id so each value gets its own sacred results dir.
+    for d in COLLISION_DISTANCES:
+        gym.register(
+            f"SelfishSpread-{n}ag-col{d:g}-v0",
+            entry_point="envs.pz_wrapper:PettingZooWrapper",
+            kwargs={"module": "mpe_envs.selfish_spread", "N": n, "collision_distance": d},
+        )

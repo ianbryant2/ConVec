@@ -12,8 +12,8 @@ def _rel_obs_entry_point(**kwargs):
     return RelativeObservationWrapper(ForagingEnv(**kwargs))
 
 
-sizes = range(5, 20)
-players = range(2, 10)
+sizes = range(5, 6)
+players = range(2, 4)
 foods = range(1, 10)
 max_food_level = [None]  # [None, 1]
 coop = [True, False]
