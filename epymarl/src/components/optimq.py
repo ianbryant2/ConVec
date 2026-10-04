@@ -1,35 +1,17 @@
-"""OptimQ: learned joint-action critics Q*_i for the concession budget.
+"""OptimQ: learned joint-action critics Q*_i, giving the concession delta.
 
-For each agent i, Q*_i(s, a) is the optimal action-value of agent i's own reward
-r_i when the joint action a is treated as a single action (Definition 2 of the
-writeup): the value agent i would get with control of every agent. The
-concession is delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t) >= 0 (Definition 4).
+Q*_i(s, a) is agent i's optimal value of its own reward when the joint action
+is a single action; delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t).
 
-Taking the max over one noisy estimate biases delta upwards, so OptimQ trains
-two independent critics Q1 and Q2, each on its own random half of the
-transitions (as in double Q-learning), and uses the double estimator
+- Two critics, each trained on its own half of the data, combined with the
+  double estimator so the max is not biased upwards.
+- delta is not clamped at 0, so estimation noise cancels over an episode.
+- The step index t / time_limit is an input, making Q* finite-horizon.
+- Off-policy double-Q TD targets with soft-updated target nets.
+- Optional stabilisers: Huber loss, LayerNorm, and reward_range, which clamps
+  bootstrapped values to the range Q* can take.
 
-    delta = 1/2 [Q2(s, argmax_a Q1(s, a)) - Q2(s, a_t)]
-          + 1/2 [Q1(s, argmax_a Q2(s, a)) - Q1(s, a_t)]
-
-with the argmax over available joint actions and each critic's slow-moving
-target net as Q1/Q2. delta is not clamped at 0: the true delta is >= 0, but
-clamping an estimate turns its zero-mean noise into a positive charge at every
-step whose true delta is ~0, and over an episode those charges add up to the
-size of real concessions. Unclamped, the noise cancels.
-
-The critics also see the step index as t / time_limit. Episodes that are cut
-off by the time limit end without a terminal state, and a critic that cannot
-tell how many steps remain cannot value that; with t as an input, treating the
-cut-off as terminal gives the finite-horizon Q*_i(s, t, a).
-
-Each critic trains as in FitUtopianCritics of Algorithm 1: off-policy from its
-replay buffer of (s, t, a, r, s', done) transitions with the original
-per-agent rewards, double-Q targets (online net selects the next joint action,
-target net evaluates it) and a soft-updated target net.
-
-The networks output one value per joint action for every agent, so their size
-grows as n_actions ** n_agents.
+Output size grows as n_actions ** n_agents.
 """
 import copy
 import itertools
@@ -50,17 +32,33 @@ class OptimQ:
         lr,
         buffer_size,
         batch_size,
-        updates_per_run,
         target_tau,
         grad_clip,
+        loss,
+        layer_norm,
+        reward_range,
     ):
-        # Defaults live in default.yaml (budget.concession_args.optimq).
+        # Defaults live in config/envs/gymma_budget.yaml (budget.concession_args.optimq);
+        # its data and training blocks go to components/concession_training.py.
         self.n_agents = args.n_agents
         self.n_actions = args.n_actions
         self.gamma = args.gamma
         self.device = args.device
         # Budget runs are gymma envs, whose episodes end at time_limit.
         self.horizon = args.env_args["time_limit"]
+
+        losses = {"mse": F.mse_loss, "huber": F.smooth_l1_loss}
+        if loss not in losses:
+            raise ValueError(f"Unknown OptimQ loss '{loss}' (available: {sorted(losses)})")
+        self.loss_fn = losses[loss]
+
+        # value_bounds[k][r]: lower (k=0) / upper (k=1) bound of Q* with r steps left.
+        self.value_bounds = None
+        if reward_range is not None:
+            r_min, r_max = reward_range
+            discounts = self.gamma ** th.arange(self.horizon, device=self.device).float()
+            horizon_sums = th.cat([discounts.new_zeros(1), discounts.cumsum(0)])
+            self.value_bounds = (r_min * horizon_sums, r_max * horizon_sums)
 
         n_joint = self.n_actions**self.n_agents
         if n_joint > MAX_JOINT_ACTIONS:
@@ -78,7 +76,7 @@ class OptimQ:
         )
 
         self.critics = [
-            _Critic(state_dim + 1, hidden_dim, self.n_agents, n_joint, lr, self.device)
+            self._make_critic(state_dim + 1, hidden_dim, n_joint, lr, layer_norm)
             for _ in range(2)
         ]
         # Each transition trains only one critic, so their estimation errors are
@@ -88,9 +86,12 @@ class OptimQ:
             _TransitionBuffer(buffer_size // 2, self.device) for _ in self.critics
         ]
         self.batch_size = batch_size
-        self.updates_per_run = updates_per_run
         self.target_tau = target_tau
         self.grad_clip = grad_clip
+
+    def _make_critic(self, input_dim, hidden_dim, n_joint, lr, layer_norm):
+        """One critic; subclasses swap the network (see OptimQAdditiveLinear)."""
+        return _Critic(input_dim, hidden_dim, self.n_agents, n_joint, lr, layer_norm, self.device)
 
     def _inputs(self, states, t):
         """Critic input: the state with the step index t (B,) appended as t / horizon."""
@@ -122,40 +123,41 @@ class OptimQ:
         )
         return delta.squeeze(-1)
 
-    def update(self, transitions):
-        """Split new transitions at random between the two critics' buffers and
-        take updates_per_run gradient steps per critic.
-
-        Returns {stat name: value} to log (the mean TD loss, and how far the two
-        target critics disagree at the new transitions' joint actions), or None
-        while a buffer is too small."""
+    def add(self, transitions):
+        """Split new transitions at random between the two critics' buffers."""
         to_first = th.rand(len(transitions["state"]), device=self.device) < 0.5
         for buffer, rows in zip(self.buffers, (to_first, ~to_first)):
             if rows.any():
                 buffer.add({k: v[rows] for k, v in transitions.items()})
-        if min(len(b) for b in self.buffers) < self.batch_size:
+
+    def train(self, n_steps, transitions):
+        """Take n_steps gradient steps per critic. Returns stats to log, or
+        None while a buffer is smaller than batch_size."""
+        if n_steps < 1 or min(len(b) for b in self.buffers) < self.batch_size:
             return None
-        losses = [
+        steps = [
             self._train_step(critic, buffer.sample(self.batch_size))
-            for _ in range(self.updates_per_run)
+            for _ in range(n_steps)
             for critic, buffer in zip(self.critics, self.buffers)
         ]
-        with th.no_grad():
-            inputs = self._inputs(transitions["state"], transitions["t"])
-            taken = self._joint_index(transitions["actions"])
-            q1, q2 = (c.q(c.target_net, inputs).gather(-1, taken) for c in self.critics)
-        return {
-            "concession_loss": sum(losses) / len(losses),
+        losses, clipped = zip(*steps)
+        stats = {"concession_loss": sum(losses) / len(losses)}
+        if transitions is not None and len(transitions["state"]):
+            with th.no_grad():
+                inputs = self._inputs(transitions["state"], transitions["t"])
+                taken = self._joint_index(transitions["actions"])
+                q1, q2 = (c.q_at(c.target_net, inputs, taken) for c in self.critics)
             # Large gaps mean noisy Q* estimates, and so noisy deltas.
-            "concession_critic_gap": (q1 - q2).abs().mean().item(),
-        }
+            stats["concession_critic_gap"] = (q1 - q2).abs().mean().item()
+        if self.value_bounds is not None:
+            # Share of bootstrapped next values outside the reward_range bounds.
+            stats["concession_clip_frac"] = sum(clipped) / len(clipped)
+        return stats
 
     def _train_step(self, critic, b):
         inputs = self._inputs(b["state"], b["t"])
         next_inputs = self._inputs(b["next_state"], b["t"] + 1)
-        q_taken = critic.q(critic.net, inputs).gather(
-            -1, self._joint_index(b["actions"])
-        ).squeeze(-1)
+        q_taken = critic.q_at(critic.net, inputs, self._joint_index(b["actions"])).squeeze(-1)
 
         with th.no_grad():
             next_avail = self._joint_avail(b["next_avail"])
@@ -163,10 +165,17 @@ class OptimQ:
             next_avail = next_avail | ~next_avail.any(-1, keepdim=True)
             next_q = critic.q(critic.net, next_inputs).masked_fill(~next_avail, -1e9)
             best_next = next_q.argmax(-1, keepdim=True)  # online net selects
-            next_value = critic.q(critic.target_net, next_inputs).gather(-1, best_next)
-            target = b["env_reward"] + self.gamma * (1 - b["terminated"]) * next_value.squeeze(-1)
+            next_value = critic.q_at(critic.target_net, next_inputs, best_next)
+            next_value = next_value.squeeze(-1)
+            clipped = 0.0
+            if self.value_bounds is not None:
+                remaining = (self.horizon - 1 - b["t"]).long().clamp(min=0)
+                low, high = (bound[remaining].unsqueeze(-1) for bound in self.value_bounds)
+                clipped = ((next_value < low) | (next_value > high)).float().mean().item()
+                next_value = th.minimum(th.maximum(next_value, low), high)
+            target = b["env_reward"] + self.gamma * (1 - b["terminated"]) * next_value
 
-        loss = F.mse_loss(q_taken, target)
+        loss = self.loss_fn(q_taken, target)
         critic.optimiser.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(critic.net.parameters(), self.grad_clip)
@@ -175,19 +184,22 @@ class OptimQ:
         with th.no_grad():
             for p, tp in zip(critic.net.parameters(), critic.target_net.parameters()):
                 tp.mul_(1 - self.target_tau).add_(self.target_tau * p)
-        return loss.item()
+        return loss.item(), clipped
 
 
 class _Critic:
     """One joint-action critic: online net, soft-updated target net, optimiser."""
 
-    def __init__(self, state_dim, hidden_dim, n_agents, n_joint, lr, device):
+    def __init__(self, state_dim, hidden_dim, n_agents, n_joint, lr, layer_norm, device):
         self.n_agents = n_agents
+
+        def hidden(in_dim):
+            norm = [nn.LayerNorm(hidden_dim)] if layer_norm else []
+            return [nn.Linear(in_dim, hidden_dim), *norm, nn.ReLU()]
+
         self.net = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            *hidden(state_dim),
+            *hidden(hidden_dim),
             nn.Linear(hidden_dim, n_agents * n_joint),
         ).to(device)
         self.target_net = copy.deepcopy(self.net)
@@ -196,6 +208,10 @@ class _Critic:
     def q(self, net, inputs):
         """(B, input_dim) -> (B, n_agents, n_joint)"""
         return net(inputs).view(inputs.shape[0], self.n_agents, -1)
+
+    def q_at(self, net, inputs, joint):
+        """Values at joint (B, n_agents, 1) -> (B, n_agents, 1)."""
+        return self.q(net, inputs).gather(-1, joint)
 
 
 class _TransitionBuffer:

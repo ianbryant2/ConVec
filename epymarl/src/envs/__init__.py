@@ -5,7 +5,6 @@ import warnings
 
 from .multiagentenv import MultiAgentEnv
 from .gymma import GymmaWrapper
-from .budget import BudgetWrapper
 
 try:
     from .smaclite_wrapper import SMACliteWrapper
@@ -40,13 +39,7 @@ def smaclite_fn(**kwargs) -> MultiAgentEnv:
 
 def gymma_fn(**kwargs) -> MultiAgentEnv:
     assert "common_reward" in kwargs and "reward_scalarisation" in kwargs
-    # main.py adds env_args.budget when budget.enabled is True.
-    budget = kwargs.pop("budget", None)
-    if budget is None:
-        return GymmaWrapper(**kwargs)
-    # The budget rule decides the reward, so the inner env keeps per-agent rewards.
-    env = GymmaWrapper(**{**kwargs, "common_reward": False})
-    return BudgetWrapper(env, common_reward=kwargs["common_reward"], **budget)
+    return GymmaWrapper(**kwargs)
 
 
 REGISTRY = {}

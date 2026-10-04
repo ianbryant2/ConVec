@@ -7,41 +7,6 @@ env: "sc2" # Environment name
 common_reward: True  # Run experiment with common reward setup
 reward_scalarisation: "sum"  # How to aggregate rewards to single common reward (only used if common_reward is True)
 env_args: {} # Arguments for the environment
-# Concession budget (envs/budget): wraps the env when enabled. gymma envs only.
-budget:
-  enabled: False
-  rule: "joint_overspend"  # envs/budget/rules.py; also sets common_reward (main.py)
-  initial_budget: null  # one number for every agent, or a per-agent list, e.g. [6.0, 6.0, 5.0] for budget-table1
-  observe_budget: "all"  # budget each agent sees: "none", "own" (b_i) or "all" (b)
-  # How the runner computes delta (components/budget_concession.py):
-  # "utopian_table" (exact, matrix games) or "optimq" (learned Q*_i critics,
-  # trained in the runner on the original rewards; components/optimq.py).
-  concession: "utopian_table"
-  # Options for each concession model, passed to the one chosen above. Every
-  # option is listed so it can be overridden, e.g. budget.concession_args.optimq.lr=0.001
-  # (sacred rejects keys that are not already in the config).
-  concession_args:
-    utopian_table: {}
-    optimq:
-      hidden_dim: 128
-      lr: 0.0005
-      buffer_size: 100000
-      batch_size: 256
-      updates_per_run: 4  # gradient steps per critic after each rollout
-      target_tau: 0.01
-      grad_clip: 10.0
-  # Extra rollouts played by an exploration policy that only train a learned
-  # concession model (components/concession_exploration.py); they never enter
-  # the learner's buffer, do not advance t_env and are not in the episode stats.
-  exploration:
-    policy: null  # exploration policy, e.g. "random"; null turns exploration off
-    warmup_rollouts: 0  # exploration rollouts before training starts
-    interval: 1  # after every {} training rollouts, explore with probability prob
-    prob_start: 1.0
-    prob_finish: 0.05
-    prob_anneal_time: 500000  # env steps (t_env) over which prob decays
-    prob_decay: "linear"  # "linear" or "exp"
-  # The budget discount is always the learner's gamma (copied in by main.py).
 batch_size_run: 1 # Number of environments to run in parallel
 test_nepisode: 20 # Number of episodes to test for
 test_interval: 2000 # Test after {} timesteps have passed

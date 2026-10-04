@@ -1,14 +1,7 @@
-"""Budget reward rules: turn the budget state after a step into rewards.
+"""Budget reward rules: turn the budget after a step into the agents' reward.
 
-Each rule is registered with the reward setting it produces:
-  common=True   returns one float shared by every agent (common_reward=True)
-  common=False  returns one reward per agent            (common_reward=False)
-
-main.py's config hook sets common_reward from budget.rule, so choosing
-the rule is enough. BudgetWrapper re-checks the pairing, since an explicit
-common_reward=... on the command line overrides the hook.
-
-To add a rule:
+A rule with common=True returns one shared float, common=False one reward per
+agent; common_reward must match. To add a rule:
 
     @budget_rule("my_rule", common=False)
     def my_rule(s: BudgetStep):
@@ -60,12 +53,54 @@ def get_rule(name):
 
 @budget_rule("joint_overspend", common=True)
 def joint_overspend(s):
-    """While any agent is overspent, every step pays the total overspend
-    (negative); otherwise the leftover budget is paid out when the episode ends.
-    With exact deltas (>= 0) an overspent budget stays negative; a learned
-    estimate may dip below 0 and let a budget recover slightly."""
+    """While anyone is overspent, every step pays the total overspend;
+    otherwise the leftover budget is paid at the end."""
     if (s.budget < 0).any():
         return np.minimum(s.budget, 0).sum() / s.discount
     if s.done:
         return s.budget.sum() / s.discount
     return 0.0
+
+
+@budget_rule("joint_overspend_increment", common=True)
+def joint_overspend_increment(s):
+    """joint_overspend, but each unit of overspend is charged once, at the
+    step that causes it (writeup Remark 24)."""
+    if (s.budget < 0).any():
+        increment = np.minimum(s.budget, 0) - np.minimum(s.prev_budget, 0)
+        return increment.sum() / s.discount
+    if s.done:
+        return s.budget.sum() / s.discount
+    return 0.0
+
+
+@budget_rule("joint_budget_increment", common=True)
+def joint_budget_increment(s):
+    """Every step pays the change in total budget; no extra overspend penalty."""
+    increment = (s.budget - s.prev_budget).sum()
+    return increment / s.discount
+
+
+@budget_rule("joint_budget_signed_increment", common=True)
+def joint_budget_signed_increment(s):
+    """While anyone is overspent, pays the change in overspend; otherwise
+    pays the total remaining budget every step."""
+    if (s.budget < 0).any():
+        increment = np.minimum(s.budget, 0) - np.minimum(s.prev_budget, 0)
+        return increment.sum() / s.discount
+    return s.budget.sum() / s.discount
+
+
+def overspend_potential(budget):
+    """Total budget if everyone is within it, else the total overspend."""
+    if (budget >= 0).all():
+        return budget.sum()
+    return np.minimum(budget, 0).sum()
+
+
+@budget_rule("joint_overspend_potential", common=True)
+def joint_overspend_potential(s):
+    """joint_overspend_increment's return paid as it accrues: each step pays
+    the change in overspend_potential."""
+    reward = overspend_potential(s.budget) - overspend_potential(s.prev_budget)
+    return reward / s.discount

@@ -1,0 +1,93 @@
+# gymma with a concession budget: gymma.yaml plus the budget settings, for the
+# budget runners (runners/budget_runner.py). Run with
+#   --env-config=gymma_budget with runner=budget_episode (or budget_parallel)
+#   budget.enabled=True common_reward=<the rule's setting> ...
+env: "gymma"
+
+env_args:
+  key: null
+  time_limit: 100
+  pretrained_wrapper: null
+
+test_greedy: True
+test_nepisode: 100
+test_interval: 50000
+log_interval: 50000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+
+# Concession budget, applied by the budget runners; the env itself is stock.
+budget:
+  enabled: False  # the budget runners refuse to run without it
+  rule: "joint_overspend_increment"  # envs/budget/rules.py; common_reward must match the rule's. "joint_overspend" charges the overspend level every step
+  initial_budget: null  # one number for every agent, or a per-agent list, e.g. [6.0, 6.0, 5.0] for budget-table1
+  observe_budget: "all"  # budget each agent sees: "none", "own" (b_i) or "all" (b)
+  # How the runner computes delta (components/budget_concession.py):
+  # "utopian_table" (exact, matrix games), "optimq" (learned Q*_i critics with
+  # one output per joint action, trained in the runner on the original rewards;
+  # components/optimq.py) or "optimq_additive_linear" (OptimQ with the joint
+  # action as an input: state and per-agent action embeddings added, then a
+  # linear head; components/optimq_additive.py).
+  concession: "utopian_table"
+  # Everything about each concession model, used for the one chosen above.
+  # Every option is listed so it can be overridden, e.g.
+  # budget.concession_args.optimq.lr=0.001 (sacred rejects keys that are not
+  # already in the config). A learned model is a learner of its own: besides
+  # its model options it has "data" (what it trains on) and "training" (how
+  # much), counted in its own data, never in the agents' updates
+  # (components/concession_training.py).
+  concession_args:
+    utopian_table: {}
+    optimq:
+      hidden_dim: 128
+      lr: 0.0005
+      buffer_size: 100000
+      batch_size: 256
+      target_tau: 0.01
+      grad_clip: 10.0
+      loss: "mse"  # TD loss: "mse" or "huber"
+      layer_norm: False  # LayerNorm after each hidden layer
+      reward_range: null  # [r_min, r_max] of one step's reward: clamps bootstrapped values to the Q* range
+      data:
+        policy_fraction: 1.0  # share of the agents' training episodes it is given, in [0, 1] (0: exploration only)
+        explore_policy: null  # its own exploration episodes, e.g. "random"; null: none
+        warmup_steps: 0  # exploration env steps it trains on before the agents start (not counted in t_env)
+        # Exploration episodes per agent training episode, over t_env; one of explore_args.
+        explore: "constant"
+        explore_args:
+          constant:
+            rate: 0.0
+          anneal:
+            start: 1.0
+            finish: 0.25
+            anneal_time: 500000  # env steps (t_env)
+            decay: "linear"  # "linear" or "exp"
+      training:
+        replay_ratio: 0.08  # gradient steps per critic per new transition it is given
+    optimq_additive_linear:  # the same options as optimq
+      hidden_dim: 128
+      lr: 0.0005
+      buffer_size: 100000
+      batch_size: 256
+      target_tau: 0.01
+      grad_clip: 10.0
+      loss: "mse"
+      layer_norm: False
+      reward_range: null
+      data:
+        policy_fraction: 1.0
+        explore_policy: null
+        warmup_steps: 0
+        explore: "constant"
+        explore_args:
+          constant:
+            rate: 0.0
+          anneal:
+            start: 1.0
+            finish: 0.25
+            anneal_time: 500000
+            decay: "linear"
+      training:
+        replay_ratio: 0.08
+  # The budget discount is always the learner's gamma.

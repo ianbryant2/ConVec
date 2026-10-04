@@ -27,3 +27,20 @@ Added — algorithm ports, kept faithful to their original implementations:
   `src/controllers/central_basic_controller.py`, `src/controllers/opt_controller.py`,
   `src/modules/agents/central_rnn_agent.py`, `src/modules/mixers/qmix_central_no_hyper.py`,
   `src/utils/normalize.py`
+
+## Concession budget (this repo's own work)
+
+Kept out of upstream's files: the envs, `run.py`, `main.py`, `config/default.yaml`
+and both runners are upstream's. The budget lives in new files and is chosen by
+config (`runner=budget_episode` / `budget_parallel`, `--env-config=gymma_budget`):
+
+- `src/runners/budget_runner.py`: the budget runners, subclasses of the stock
+  runners that wrap their env connection to apply the budget each step
+- `src/envs/budget/` (budget bookkeeping and reward rules),
+  `src/components/budget_concession.py`, `optimq.py`, `optimq_additive.py`, `concession_training.py`
+- `src/config/envs/gymma_budget.yaml`: `gymma.yaml` plus the `budget:` settings
+
+Edits to upstream files:
+- `src/runners/__init__.py`: registers the two budget runners
+- `src/runners/parallel_runner.py`: a worker that fails to build its env reports
+  the error instead of leaving the parent waiting forever (not budget-specific)
