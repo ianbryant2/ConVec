@@ -3,7 +3,8 @@
 Settings live in budget.concession_args.<name>.data / .training:
 
   data.policy_fraction   share of the agents' training episodes it trains on
-  data.explore_policy    policy for its own exploration episodes (null: none)
+  data.explore_policy    policy for its own exploration episodes (null: none),
+                         "random" or "greedy"; options in data.explore_policy_args
   data.warmup_steps      exploration env steps before the agents start
   data.explore           exploration episodes per agent episode, over t_env
   training.replay_ratio  gradient steps per critic per new transition
@@ -20,16 +21,44 @@ from components.epsilon_schedules import DecayThenFlatSchedule
 class RandomExploration:
     """Each agent picks uniformly among its available actions, independently."""
 
+    def __init__(self, concession):
+        pass
+
     def select_actions(self, mac, batch, t_ep, t_env, bs, avail_actions):
         avail = avail_actions.float()
         actions = th.multinomial(avail.reshape(-1, avail.shape[-1]), 1)
         return actions.view(avail.shape[:-1])
 
 
-# cls() with select_actions(mac, batch, t_ep, t_env, bs, avail_actions) -> (B, n_agents).
-EXPLORATION_POLICIES = {
-    "random": RandomExploration,
-}
+class GreedyExploration:
+    """Epsilon-greedy on one agent's critic head, round robin over the agents.
+
+    Exploration episodes take the agents' heads in turn (0, 1, ..., n-1, 0, ...)
+    and play the joint action maximising that agent's Q* (OptimQ.greedy_actions);
+    each agent's action is then independently replaced by a uniformly random
+    available one with probability epsilon(t_env), one of EXPLORE_SCHEDULES
+    (so warmup, at t_env 0, plays epsilon's start value).
+    """
+
+    def __init__(self, concession, epsilon, epsilon_args):
+        if not hasattr(concession.model, "greedy_actions"):
+            raise ValueError("explore_policy 'greedy' needs a learned Q* concession model (optimq*)")
+        self.concession = concession
+        self.epsilon = _registered(EXPLORE_SCHEDULES, epsilon, "epsilon schedule")(
+            **(epsilon_args.get(epsilon) or {})
+        )
+        self._next_head = 0
+        self._heads = None  # (B,) head of each env in the current rollout
+
+    def select_actions(self, mac, batch, t_ep, t_env, bs, avail_actions):
+        if t_ep == 0:
+            n = batch.batch_size
+            self._heads = (self._next_head + th.arange(n)) % self.concession.n_agents
+            self._next_head = (self._next_head + n) % self.concession.n_agents
+        states = self.concession._without_budget(batch["state"][bs, t_ep]).float()
+        return self.concession.model.greedy_actions(
+            states, avail_actions, t_ep, self._heads[bs], self.epsilon(t_env)
+        )
 
 
 class ConstantExplore:
@@ -59,6 +88,14 @@ EXPLORE_SCHEDULES = {
 }
 
 
+# cls(concession, **data.explore_policy_args[name]) with
+# select_actions(mac, batch, t_ep, t_env, bs, avail_actions) -> (B, n_agents).
+EXPLORATION_POLICIES = {
+    "random": RandomExploration,
+    "greedy": GreedyExploration,
+}
+
+
 def _registered(registry, name, what):
     if name not in registry:
         raise ValueError(f"Unknown {what} '{name}' (available: {sorted(registry)})")
@@ -77,7 +114,9 @@ class ConcessionTrainer:
         name = data["explore_policy"]
         self.explorer = (
             None if name is None
-            else _registered(EXPLORATION_POLICIES, name, "exploration policy")()
+            else _registered(EXPLORATION_POLICIES, name, "exploration policy")(
+                concession, **((data.get("explore_policy_args") or {}).get(name) or {})
+            )
         )
         self.warmup_steps = data["warmup_steps"]
         explore = data["explore"]

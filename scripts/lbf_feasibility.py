@@ -241,9 +241,43 @@ def play_scripted(seed, assignment, gamma):
 
 # --- learned critic ----------------------------------------------------------
 
+TRANSITION_KEYS = ("state", "t", "actions", "env_reward", "next_state", "next_avail", "terminated")
+
+
+def greedy_episodes(envs, rng, model, epsilon, first_head):
+    """Transitions of one episode per env, played in lockstep epsilon-greedy on
+    the model's Q* heads (OptimQ.greedy_actions), env k on head first_head + k
+    (mod n_agents), as the runner's GreedyExploration does."""
+    import torch as th
+    rows = {k: [] for k in TRANSITION_KEYS}
+    for env in envs:
+        env.reset(seed=int(rng.integers(2**31)))
+    states = [env.get_state() for env in envs]
+    heads = (first_head + th.arange(len(envs))) % N_AGENTS
+    running = list(range(len(envs)))
+    for t in range(TIME_LIMIT):
+        actions = model.greedy_actions(th.as_tensor(np.asarray([states[k] for k in running]), dtype=th.float32),
+                                       th.ones(len(running), N_AGENTS, N_ACTIONS), t, heads[running], epsilon)
+        still = []
+        for k, a in zip(running, actions.numpy()):
+            _, reward, done, truncated, _ = envs[k].step(a)
+            nxt = envs[k].get_state()
+            last = done or truncated or t == TIME_LIMIT - 1
+            for key, value in zip(TRANSITION_KEYS, (states[k], t, a, reward, nxt,
+                                                    np.ones((N_AGENTS, N_ACTIONS)), [float(last)])):
+                rows[key].append(value)
+            states[k] = nxt
+            if not last:
+                still.append(k)
+        running = still
+        if not running:
+            break
+    return rows
+
+
 def random_episodes(env, rng, n):
     """Transitions of n uniformly random episodes, as the runner records them."""
-    rows = {k: [] for k in ("state", "t", "actions", "env_reward", "next_state", "next_avail", "terminated")}
+    rows = {k: [] for k in TRANSITION_KEYS}
     for _ in range(n):
         env.reset(seed=int(rng.integers(2**31)))
         state = env.get_state()
@@ -266,11 +300,13 @@ def random_episodes(env, rng, n):
 
 
 def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on_log=None, replay=None,
-                 target=None):
+                 target=None, epsilon=None):
     """on_log(model, steps) is called at each log point, e.g. to evaluate.
     replay overrides the run's replay settings, e.g. {"prioritized": True,
     "alpha": 0.6, "beta": 0.4}; target its TD target ("double_self" or
-    "double_cross")."""
+    "double_cross"). epsilon(steps) -> epsilon makes the data epsilon-greedy on
+    the critic's own heads in turn (None: uniformly random), with epsilon over
+    the steps trained on so far."""
     import torch as th
     from components.optimq_additive import OptimQAdditiveLinear
 
@@ -296,8 +332,15 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
     rng = np.random.default_rng(seed)
     seen, credit, next_log, start = 0, 0.0, log_every, time.time()
     stats = {}
+    episodes = 0
+    envs = None if epsilon is None else [make_env(seed + 1 + k) for k in range(10)]
     while seen < total_steps:
-        rows = random_episodes(env, rng, 10)  # one parallel-runner rollout
+        # one parallel-runner rollout
+        if envs is None:
+            rows = random_episodes(env, rng, 10)
+        else:
+            rows = greedy_episodes(envs, rng, model, epsilon(seen), episodes)
+        episodes += 10
         dtype = {"actions": th.long}
         batch = {k: th.as_tensor(np.asarray(v), dtype=dtype.get(k, th.float32)) for k, v in rows.items()}
         model.add(batch)
@@ -306,13 +349,15 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
         n_steps, credit = int(credit), credit - int(credit)
         stats = model.train(n_steps, batch) or stats
         if seen >= next_log:
-            print(f"  {seen:>9,} random steps  loss {stats.get('concession_loss', float('nan')):.4f}  "
+            eps = "" if epsilon is None else f"  epsilon {epsilon(seen):.2f}"
+            print(f"  {seen:>9,} steps{eps}  loss {stats.get('concession_loss', float('nan')):.4f}  "
                   f"critic_gap {stats.get('concession_critic_gap', float('nan')):.3f}  "
                   f"({time.time() - start:.0f}s)", flush=True)
             if on_log is not None:
                 on_log(model, seen)
             next_log += log_every
-    env.close()
+    for e in [env, *(envs or [])]:
+        e.close()
     return model
 
 
@@ -462,6 +507,9 @@ def main():
     parser.add_argument("--log-every", type=int, default=250_000,
                         help="random steps between critic progress reports")
     parser.add_argument("--save", type=Path, help="save the trained critic here")
+    parser.add_argument("--checkpoint-dir", type=Path,
+                        help="also save the critic (replay buffers included) at every log point, "
+                             "as <dir>/<steps>.pt")
     parser.add_argument("--load", type=Path, help="use a critic saved with --save instead of training")
     parser.add_argument("--per", action="store_true",
                         help="train the critic with prioritised replay (overrides the run's setting)")
@@ -469,6 +517,13 @@ def main():
     parser.add_argument("--per-beta", type=float, default=0.4)
     parser.add_argument("--target", choices=["double_self", "double_cross"],
                         help="the critic's TD target (overrides the run's setting)")
+    parser.add_argument("--greedy", action="store_true",
+                        help="train on epsilon-greedy play on the critic's own heads, in turn per episode, "
+                             "instead of uniformly random play (the runner's explore_policy=greedy)")
+    parser.add_argument("--epsilon-start", type=float, default=1.0)
+    parser.add_argument("--epsilon-finish", type=float, default=0.1)
+    parser.add_argument("--epsilon-anneal", type=int, default=500_000,
+                        help="steps over which epsilon decays linearly from start to finish (0: finish throughout)")
     parser.add_argument("--per-step", action="store_true",
                         help="break learned vs exact delta down by step (needs a critic)")
     args = parser.parse_args()
@@ -503,12 +558,22 @@ def main():
             print(f"      two-apple learned charge (best assignment) {best.mean(0).round(3).tolist()}, "
                   f"within c {(best <= C).all(-1).mean():.0%}; learned - exact {err.round(3).tolist()}",
                   flush=True)
+            if args.checkpoint_dir:
+                import torch as th
+                args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                th.save(model, args.checkpoint_dir / f"{steps}.pt")
 
-        print(f"\ntraining the additive critic on {args.critic_steps:,} random steps")
+        epsilon = None
+        if args.greedy:
+            from components.concession_training import AnnealExplore, ConstantExplore
+            epsilon = (AnnealExplore(args.epsilon_start, args.epsilon_finish, args.epsilon_anneal, "linear")
+                       if args.epsilon_anneal else ConstantExplore(args.epsilon_finish))
+        play = "epsilon-greedy" if args.greedy else "random"
+        print(f"\ntraining the additive critic on {args.critic_steps:,} {play} steps")
         replay = ({"prioritized": True, "alpha": args.per_alpha, "beta": args.per_beta}
                   if args.per else None)
         model = train_critic(args.critic_steps, args.seed, args.run, log_every=args.log_every,
-                             on_log=progress, replay=replay, target=args.target)
+                             on_log=progress, replay=replay, target=args.target, epsilon=epsilon)
         if args.save:
             import torch as th
             th.save(model, args.save)

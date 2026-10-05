@@ -144,6 +144,22 @@ class OptimQ:
         )
         return delta.squeeze(-1)
 
+    @th.no_grad()
+    def greedy_actions(self, states, avail_actions, t, heads, epsilon):
+        """(B, n_agents) actions for B states at step t: row b plays the
+        available joint action maximising agent heads[b]'s Q* (the two target
+        nets averaged), then each agent's action is independently replaced by a
+        uniformly random available one with probability epsilon."""
+        inputs = self._inputs(states, th.full((len(states),), t, device=states.device))
+        q = sum(c.q(c.target_net, inputs) for c in self.critics) / len(self.critics)
+        q = q[th.arange(len(q), device=q.device), heads.to(q.device)]  # (B, n_joint)
+        avail = self._joint_avail(avail_actions).squeeze(1)
+        greedy = self.joint_actions[q.masked_fill(~avail, -1e9).argmax(-1)]
+        per_agent = avail_actions.float().reshape(-1, self.n_actions)
+        random = th.multinomial(per_agent, 1).view(greedy.shape)
+        explore = th.rand(greedy.shape, device=greedy.device) < epsilon
+        return th.where(explore, random, greedy)
+
     def add(self, transitions):
         """Split new transitions at random between the two critics' buffers."""
         to_first = th.rand(len(transitions["state"]), device=self.device) < 0.5

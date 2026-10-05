@@ -60,7 +60,21 @@ budget:
         beta: 0.4  # importance weights undoing that skew in the loss (0 = none, 1 = fully)
       data:
         policy_fraction: 1.0  # share of the agents' training episodes it is given, in [0, 1] (0: exploration only)
-        explore_policy: null  # its own exploration episodes, e.g. "random"; null: none
+        explore_policy: null  # its own exploration episodes: "random", "greedy"; null: none
+        explore_policy_args:
+          random: {}
+          # Epsilon-greedy on one agent's Q* head, the agents' heads taken in turn per
+          # exploration episode; epsilon over t_env, one of the explore schedules below.
+          greedy:
+            epsilon: "constant"
+            epsilon_args:
+              constant:
+                rate: 0.1
+              anneal:
+                start: 1.0
+                finish: 0.1
+                anneal_time: 500000  # env steps (t_env)
+                decay: "linear"
         warmup_steps: 0  # exploration env steps it trains on before the agents start (not counted in t_env)
         # Exploration episodes per agent training episode, over t_env; one of explore_args.
         explore: "constant"
@@ -92,6 +106,18 @@ budget:
       data:
         policy_fraction: 1.0
         explore_policy: null
+        explore_policy_args:
+          random: {}
+          greedy:
+            epsilon: "constant"
+            epsilon_args:
+              constant:
+                rate: 0.1
+              anneal:
+                start: 1.0
+                finish: 0.1
+                anneal_time: 500000
+                decay: "linear"
         warmup_steps: 0
         explore: "constant"
         explore_args:

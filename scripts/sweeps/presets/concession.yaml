@@ -83,6 +83,20 @@ profiles:
   explore_only:
     concession: {data: {policy_fraction: 0.0, explore: constant, explore_args: {constant: {rate: 1.0}}}}
 
+  # Exploration episodes played epsilon-greedy on OptimQ's own Q* heads, the
+  # agents' heads in turn per episode, so the critic tries the joint actions it
+  # overvalues and is corrected. epsilon is annealed over t_env from 1.0 (so a
+  # warmup, at t_env 0, is random play) to 0.1 over 500k steps. Combine with a
+  # data profile for how many exploration episodes there are (e.g. lbf_explore_only).
+  greedy:
+    concession:
+      data:
+        explore_policy: greedy
+        explore_policy_args:
+          greedy:
+            epsilon: anneal
+            epsilon_args: {anneal: {start: 1.0, finish: 0.1, anneal_time: 500_000, decay: linear}}
+
   # Matrix games (50k one-step episodes): a 5k-step warmup (~185 random
   # samples per joint action of the 27), exploration annealed over 50k.
   matrix_explore:
