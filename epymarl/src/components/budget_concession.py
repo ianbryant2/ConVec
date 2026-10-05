@@ -15,7 +15,7 @@ import numpy as np
 import torch as th
 
 from components.optimq import OptimQ
-from components.optimq_additive import OptimQAdditiveLinear
+from components.optimq_additive import OptimQAdditiveLinear, OptimQAdditiveMLP
 from envs.budget.tracker import budget_state_size
 
 
@@ -43,6 +43,7 @@ CONCESSIONS = {
     "utopian_table": UtopianTableConcession,
     "optimq": OptimQ,
     "optimq_additive_linear": OptimQAdditiveLinear,
+    "optimq_additive_mlp": OptimQAdditiveMLP,
 }
 
 

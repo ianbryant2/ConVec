@@ -300,15 +300,16 @@ def random_episodes(env, rng, n):
 
 
 def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on_log=None, replay=None,
-                 target=None, epsilon=None):
+                 target=None, epsilon=None, head_layers=0):
     """on_log(model, steps) is called at each log point, e.g. to evaluate.
     replay overrides the run's replay settings, e.g. {"prioritized": True,
     "alpha": 0.6, "beta": 0.4}; target its TD target ("double_self" or
     "double_cross"). epsilon(steps) -> epsilon makes the data epsilon-greedy on
     the critic's own heads in turn (None: uniformly random), with epsilon over
-    the steps trained on so far."""
+    the steps trained on so far. head_layers > 0 trains optimq_additive_mlp
+    with that many layers after the sum instead of optimq_additive_linear."""
     import torch as th
-    from components.optimq_additive import OptimQAdditiveLinear
+    from components.optimq_additive import OptimQAdditiveLinear, OptimQAdditiveMLP
 
     config = json.loads((Path(run_dir) / "config.json").read_text())
     budget = config["budget"]
@@ -326,7 +327,11 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
     th.manual_seed(seed)
     env = make_env(seed)
     env.reset(seed=seed)
-    model = OptimQAdditiveLinear(args, len(env.get_state()), **options)
+    if head_layers:
+        options["head_layers"] = head_layers
+        model = OptimQAdditiveMLP(args, len(env.get_state()), **options)
+    else:
+        model = OptimQAdditiveLinear(args, len(env.get_state()), **options)
     print(f"critic settings from {Path(run_dir).name}: {options}, replay_ratio {replay_ratio}")
 
     rng = np.random.default_rng(seed)
@@ -517,6 +522,9 @@ def main():
     parser.add_argument("--per-beta", type=float, default=0.4)
     parser.add_argument("--target", choices=["double_self", "double_cross"],
                         help="the critic's TD target (overrides the run's setting)")
+    parser.add_argument("--head-layers", type=int, default=0,
+                        help="train optimq_additive_mlp with this many hidden layers after the sum "
+                             "(0: the run's optimq_additive_linear)")
     parser.add_argument("--greedy", action="store_true",
                         help="train on epsilon-greedy play on the critic's own heads, in turn per episode, "
                              "instead of uniformly random play (the runner's explore_policy=greedy)")
@@ -573,7 +581,8 @@ def main():
         replay = ({"prioritized": True, "alpha": args.per_alpha, "beta": args.per_beta}
                   if args.per else None)
         model = train_critic(args.critic_steps, args.seed, args.run, log_every=args.log_every,
-                             on_log=progress, replay=replay, target=args.target, epsilon=epsilon)
+                             on_log=progress, replay=replay, target=args.target, epsilon=epsilon,
+                             head_layers=args.head_layers)
         if args.save:
             import torch as th
             th.save(model, args.save)

@@ -49,6 +49,7 @@ CONCESSIONS = {
     "utopian_table": "exact",
     "optimq": "oq",
     "optimq_additive_linear": "oq-add",
+    "optimq_additive_mlp": "oq-mlp",
 }
 
 HEADER = """\
@@ -64,7 +65,8 @@ HEADER = """\
 #             (overspend = joint_overspend, ovs-inc = joint_overspend_increment,
 #             budget-inc, signed = joint_budget_signed_increment, potential),
 #             initial budget (c1-6-6), concession (exact = utopian_table,
-#             oq = optimq, oq-add = optimq_additive_linear), critic fixes
+#             oq = optimq, oq-add = optimq_additive_linear,
+#             oq-mlp = optimq_additive_mlp), critic fixes
 #             (stable = huber + layer_norm, -noclip without reward_range,
 #             slow = target_tau 0.005 with mse), data (warmup = random-play
 #             warmup, xonly = critic trained on exploration only, x<a>-<b> =

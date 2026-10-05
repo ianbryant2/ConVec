@@ -28,7 +28,8 @@ budget:
   # one output per joint action, trained in the runner on the original rewards;
   # components/optimq.py) or "optimq_additive_linear" (OptimQ with the joint
   # action as an input: state and per-agent action embeddings added, then a
-  # linear head; components/optimq_additive.py).
+  # linear head; components/optimq_additive.py) or "optimq_additive_mlp" (the same with
+  # head_layers hidden layers, ReLU(W h + b), between the sum and the head).
   concession: "utopian_table"
   # Everything about each concession model, used for the one chosen above.
   # Every option is listed so it can be overridden, e.g.
@@ -89,6 +90,49 @@ budget:
       training:
         replay_ratio: 0.08  # gradient steps per critic per new transition it is given
     optimq_additive_linear:  # the same options as optimq
+      hidden_dim: 128
+      lr: 0.0005
+      buffer_size: 100000
+      batch_size: 256
+      target_tau: 0.01
+      grad_clip: 10.0
+      loss: "mse"
+      layer_norm: False
+      reward_range: null
+      target: "double_self"
+      replay:
+        prioritized: False
+        alpha: 0.6
+        beta: 0.4
+      data:
+        policy_fraction: 1.0
+        explore_policy: null
+        explore_policy_args:
+          random: {}
+          greedy:
+            epsilon: "constant"
+            epsilon_args:
+              constant:
+                rate: 0.1
+              anneal:
+                start: 1.0
+                finish: 0.1
+                anneal_time: 500000
+                decay: "linear"
+        warmup_steps: 0
+        explore: "constant"
+        explore_args:
+          constant:
+            rate: 0.0
+          anneal:
+            start: 1.0
+            finish: 0.25
+            anneal_time: 500000
+            decay: "linear"
+      training:
+        replay_ratio: 0.08
+    optimq_additive_mlp:  # the same options as optimq_additive_linear, plus head_layers
+      head_layers: 1  # hidden layers between relu(f(s) + sum_i g_i(a_i)) and the head
       hidden_dim: 128
       lr: 0.0005
       buffer_size: 100000
