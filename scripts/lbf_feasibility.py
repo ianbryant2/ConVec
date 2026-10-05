@@ -265,10 +265,12 @@ def random_episodes(env, rng, n):
     return rows
 
 
-def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on_log=None, replay=None):
+def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on_log=None, replay=None,
+                 target=None):
     """on_log(model, steps) is called at each log point, e.g. to evaluate.
     replay overrides the run's replay settings, e.g. {"prioritized": True,
-    "alpha": 0.6, "beta": 0.4}."""
+    "alpha": 0.6, "beta": 0.4}; target its TD target ("double_self" or
+    "double_cross")."""
     import torch as th
     from components.optimq_additive import OptimQAdditiveLinear
 
@@ -279,6 +281,8 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
     options.pop("data")
     if replay is not None:
         options["replay"] = replay
+    if target is not None:
+        options["target"] = target
     if budget["concession"] != "optimq_additive_linear":
         raise ValueError(f"{run_dir} used concession '{budget['concession']}', expected the additive critic")
     args = SimpleNamespace(n_agents=N_AGENTS, n_actions=N_ACTIONS, gamma=config["gamma"],
@@ -463,6 +467,8 @@ def main():
                         help="train the critic with prioritised replay (overrides the run's setting)")
     parser.add_argument("--per-alpha", type=float, default=0.6)
     parser.add_argument("--per-beta", type=float, default=0.4)
+    parser.add_argument("--target", choices=["double_self", "double_cross"],
+                        help="the critic's TD target (overrides the run's setting)")
     parser.add_argument("--per-step", action="store_true",
                         help="break learned vs exact delta down by step (needs a critic)")
     args = parser.parse_args()
@@ -502,7 +508,7 @@ def main():
         replay = ({"prioritized": True, "alpha": args.per_alpha, "beta": args.per_beta}
                   if args.per else None)
         model = train_critic(args.critic_steps, args.seed, args.run, log_every=args.log_every,
-                             on_log=progress, replay=replay)
+                             on_log=progress, replay=replay, target=args.target)
         if args.save:
             import torch as th
             th.save(model, args.save)

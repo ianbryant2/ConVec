@@ -49,6 +49,9 @@ budget:
       loss: "mse"  # TD loss: "mse" or "huber"
       layer_norm: False  # LayerNorm after each hidden layer
       reward_range: null  # [r_min, r_max] of one step's reward: clamps bootstrapped values to the Q* range
+      # TD target. "double_self": a critic's online net selects the next action, its own target
+      # net evaluates; "double_cross": its target net selects, the other critic's target net evaluates.
+      target: "double_self"
       # Prioritised replay (torchrl): each critic samples its buffer by TD error
       # (its worst-fit agent head), new transitions at the highest priority.
       replay:
@@ -81,6 +84,7 @@ budget:
       loss: "mse"
       layer_norm: False
       reward_range: null
+      target: "double_self"
       replay:
         prioritized: False
         alpha: 0.6

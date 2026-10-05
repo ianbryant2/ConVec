@@ -7,7 +7,12 @@ is a single action; delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t).
   double estimator so the max is not biased upwards.
 - delta is not clamped at 0, so estimation noise cancels over an episode.
 - The step index t / time_limit is an input, making Q* finite-horizon.
-- Off-policy double-Q TD targets with soft-updated target nets.
+- Off-policy double-Q TD targets with soft-updated target nets (target):
+  "double_self" - a critic's online net selects the next action, its own
+                  target net evaluates it (Double DQN within one critic);
+  "double_cross" - its target net selects, the other critic's target net
+                  evaluates (double Q-learning across the two critics, as
+                  delta combines them).
 - Optional stabilisers: Huber loss, LayerNorm, and reward_range, which clamps
   bootstrapped values to the range Q* can take.
 - Optional prioritised replay (replay.prioritized): each critic samples its
@@ -40,6 +45,7 @@ class OptimQ:
         layer_norm,
         reward_range,
         replay=None,
+        target="double_self",
     ):
         # Defaults live in config/envs/gymma_budget.yaml (budget.concession_args.optimq);
         # its data and training blocks go to components/concession_training.py.
@@ -54,6 +60,10 @@ class OptimQ:
         if loss not in losses:
             raise ValueError(f"Unknown OptimQ loss '{loss}' (available: {sorted(losses)})")
         self.loss_fn = losses[loss]
+        targets = ("double_self", "double_cross")
+        if target not in targets:
+            raise ValueError(f"Unknown OptimQ target '{target}' (available: {list(targets)})")
+        self.target = target
 
         # value_bounds[k][r]: lower (k=0) / upper (k=1) bound of Q* with r steps left.
         self.value_bounds = None
@@ -147,9 +157,9 @@ class OptimQ:
         if n_steps < 1 or min(len(b) for b in self.buffers) < self.batch_size:
             return None
         steps = [
-            self._train_step(critic, buffer)
+            self._train_step(critic, buffer, other)
             for _ in range(n_steps)
-            for critic, buffer in zip(self.critics, self.buffers)
+            for critic, buffer, other in zip(self.critics, self.buffers, reversed(self.critics))
         ]
         losses, clipped = zip(*steps)
         stats = {"concession_loss": sum(losses) / len(losses)}
@@ -165,7 +175,7 @@ class OptimQ:
             stats["concession_clip_frac"] = sum(clipped) / len(clipped)
         return stats
 
-    def _train_step(self, critic, buffer):
+    def _train_step(self, critic, buffer, other):
         b = buffer.sample(self.batch_size)
         inputs = self._inputs(b["state"], b["t"])
         next_inputs = self._inputs(b["next_state"], b["t"] + 1)
@@ -175,9 +185,13 @@ class OptimQ:
             next_avail = self._joint_avail(b["next_avail"])
             # Terminal rows are masked out by (1 - done); keep their max finite.
             next_avail = next_avail | ~next_avail.any(-1, keepdim=True)
-            next_q = critic.q(critic.net, next_inputs).masked_fill(~next_avail, -1e9)
-            best_next = next_q.argmax(-1, keepdim=True)  # online net selects
-            next_value = critic.q_at(critic.target_net, next_inputs, best_next)
+            if self.target == "double_cross":
+                selector, evaluator = critic.target_net, other
+            else:
+                selector, evaluator = critic.net, critic
+            next_q = critic.q(selector, next_inputs).masked_fill(~next_avail, -1e9)
+            best_next = next_q.argmax(-1, keepdim=True)
+            next_value = evaluator.q_at(evaluator.target_net, next_inputs, best_next)
             next_value = next_value.squeeze(-1)
             clipped = 0.0
             if self.value_bounds is not None:
