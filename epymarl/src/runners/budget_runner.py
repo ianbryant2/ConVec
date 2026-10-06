@@ -1,8 +1,9 @@
 """Budget runners: the stock episode and parallel runners with a concession budget.
 
-Each step, between the agents acting and the env stepping, the runner computes
-the concession delta, spends it from that env's budget, replaces the rewards
-with the budget rule's and appends the budget to observations and state. The
+After each env step the runner computes the concession delta (from the state
+before the step, the actions, and the step's rewards and next state), spends
+it from that env's budget, replaces the rewards with the budget rule's and
+appends the budget to observations and state. The
 envs stay stock. After each training rollout a learned concession model is
 trained (components/concession_training.py).
 
@@ -186,14 +187,20 @@ class _BudgetEnv:
         return self._budget.state(self._env.get_state())
 
     def step(self, actions):
-        delta = self._runner.concession.deltas(
-            [self._env.get_state()],
-            actions,
-            [self._env.get_avail_actions()],
-            self._budget.t,
-        )[0]
+        state, avail = self._env.get_state(), self._env.get_avail_actions()
         _, env_rewards, done, truncated, info = self._env.step(actions)
-        reward, budget_info = self._budget.step(actions, delta, env_rewards, done or truncated)
+        ended = done or truncated
+        delta = self._runner.concession.deltas(
+            [state],
+            actions,
+            [avail],
+            self._budget.t,
+            [env_rewards],
+            [self._env.get_state()],
+            [self._env.get_avail_actions()],
+            [ended],
+        )[0]
+        reward, budget_info = self._budget.step(actions, delta, env_rewards, ended)
         return self.get_obs(), reward, done, truncated, {**info, **budget_info}
 
     def __getattr__(self, name):
@@ -201,70 +208,79 @@ class _BudgetEnv:
 
 
 class _BudgetPipes:
-    """The parallel runner's env pipes, with the budget applied. Step messages
-    are held until a reply is needed, so all envs' deltas come from one
-    batched model call."""
+    """The parallel runner's env pipes, with the budget applied. The first
+    step reply asked for receives every env's outstanding step reply, so all
+    envs' deltas come from one batched model call."""
 
     def __init__(self, conns, budgets, runner):
         self._raw = list(conns)
         self._budgets = budgets
         self._runner = runner
         n = len(self._raw)
-        self._pending = {}  # env index -> actions, step not sent yet
         self._last_cmd = [None] * n
         self._state = [None] * n  # each env's latest state and avail actions, without the budget
         self._avail = [None] * n
-        self._actions = [None] * n  # the last step sent: its actions and deltas
-        self._delta = [None] * n
+        self._actions = [None] * n  # the last step sent
+        self._stepping = set()  # envs sent a step whose reply is not received yet
+        self._replies = {}  # env index -> step reply, budget applied, not handed out yet
         self.conns = [_BudgetPipe(self, i) for i in range(n)]
 
     def send(self, i, msg):
         cmd, data = msg
         if cmd == "step":
-            self._pending[i] = data
-            return
-        self._flush()
-        if cmd == "reset":
+            self._actions[i] = data
+            self._stepping.add(i)
+        elif cmd == "reset":
             self._budgets[i].reset()
         self._last_cmd[i] = cmd
         self._raw[i].send(msg)
 
     def recv(self, i):
-        self._flush()
+        # A step reply is outstanding even after a reply-less "render" was sent.
+        if i in self._stepping:
+            self._receive_steps()
+        if i in self._replies:
+            return self._replies.pop(i)
         data = self._raw[i].recv()
-        cmd = self._last_cmd[i]
-        if cmd not in ("reset", "step"):
+        if self._last_cmd[i] != "reset":
             return data
-        budget = self._budgets[i]
-        data = dict(data)
-        if cmd == "step":
-            reward, budget_info = budget.step(
-                self._actions[i], self._delta[i], data["reward"], data["terminated"]
+        return self._with_budget(i, dict(data))
+
+    def _receive_steps(self):
+        """Receive every outstanding step reply, charge their deltas in one
+        call and apply the budgets."""
+        envs = sorted(self._stepping)
+        self._stepping.clear()
+        replies = [dict(self._raw[i].recv()) for i in envs]
+        t = self._budgets[envs[0]].t
+        assert all(self._budgets[i].t == t for i in envs), "envs out of step"
+        deltas = self._runner.concession.deltas(
+            [self._state[i] for i in envs],
+            np.stack([self._actions[i] for i in envs]),
+            [self._avail[i] for i in envs],
+            t,
+            [data["reward"] for data in replies],
+            [data["state"] for data in replies],
+            [data["avail_actions"] for data in replies],
+            [data["terminated"] for data in replies],
+        )
+        for i, data, delta in zip(envs, replies, deltas):
+            reward, budget_info = self._budgets[i].step(
+                self._actions[i], delta, data["reward"], data["terminated"]
             )
             data["reward"] = reward
             data["info"] = {**data["info"], **budget_info}
+            self._replies[i] = self._with_budget(i, data)
+
+    def _with_budget(self, i, data):
+        """A reset or step reply with the budget appended; keeps the env's
+        state and avail actions for its next delta."""
+        budget = self._budgets[i]
         self._state[i] = data["state"]
         self._avail[i] = data["avail_actions"]
         data["obs"] = budget.observe(data["obs"])
         data["state"] = budget.state(data["state"])
         return data
-
-    def _flush(self):
-        if not self._pending:
-            return
-        envs = sorted(self._pending)
-        t = self._budgets[envs[0]].t
-        assert all(self._budgets[i].t == t for i in envs), "envs out of step"
-        actions = np.stack([self._pending[i] for i in envs])
-        deltas = self._runner.concession.deltas(
-            [self._state[i] for i in envs], actions, [self._avail[i] for i in envs], t
-        )
-        for i, delta in zip(envs, deltas):
-            self._actions[i] = self._pending[i]
-            self._delta[i] = delta
-            self._last_cmd[i] = "step"
-            self._raw[i].send(("step", self._pending[i]))
-        self._pending.clear()
 
 
 class _BudgetPipe:

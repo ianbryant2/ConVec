@@ -1,7 +1,8 @@
 """OptimQ: learned joint-action critics Q*_i, giving the concession delta.
 
 Q*_i(s, a) is agent i's optimal value of its own reward when the joint action
-is a single action; delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t).
+is a single action; delta_i = max_a Q*_i(s, a) - Q*_i(s, a_t). values() gives
+max_a Q*_i(s, a) alone, for the runner's "td" delta (budget_concession.py).
 
 - Two critics, each trained on its own half of the data, combined with the
   double estimator so the max is not biased upwards.
@@ -143,6 +144,17 @@ class OptimQ:
             q1.gather(-1, best2) - q1.gather(-1, taken)
         )
         return delta.squeeze(-1)
+
+    @th.no_grad()
+    def values(self, states, avail_actions, t):
+        """max_a Q*_i(s, a) (B, n_agents) for B states at step t, the max part
+        of __call__'s delta (double estimator over the two target nets)."""
+        inputs = self._inputs(states, th.full((len(states),), t, device=states.device))
+        avail = self._joint_avail(avail_actions)
+        q1, q2 = (c.q(c.target_net, inputs) for c in self.critics)
+        best1 = q1.masked_fill(~avail, -1e9).argmax(-1, keepdim=True)
+        best2 = q2.masked_fill(~avail, -1e9).argmax(-1, keepdim=True)
+        return (0.5 * (q2.gather(-1, best1) + q1.gather(-1, best2))).squeeze(-1)
 
     @th.no_grad()
     def greedy_actions(self, states, avail_actions, t, heads, epsilon):

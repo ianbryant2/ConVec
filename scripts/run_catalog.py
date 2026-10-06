@@ -66,7 +66,8 @@ HEADER = """\
 #             budget-inc, signed = joint_budget_signed_increment, potential),
 #             initial budget (c1-6-6), concession (exact = utopian_table,
 #             oq = optimq, oq-add = optimq_additive_linear,
-#             oq-mlp = optimq_additive_mlp), critic fixes
+#             oq-mlp = optimq_additive_mlp), td = delta "td" (V(s) - r -
+#             gamma V(s') charges), critic fixes
 #             (stable = huber + layer_norm, -noclip without reward_range,
 #             slow = target_tau 0.005 with mse), data (warmup = random-play
 #             warmup, xonly = critic trained on exploration only, x<a>-<b> =
@@ -228,6 +229,8 @@ def descriptor(config):
         concession = budget.get("concession")
         tokens.append(CONCESSIONS.get(concession, str(concession)))
         args = budget.get("concession_args", {}).get(concession) or {}
+        if args.get("delta") == "td":
+            tokens.append("td")
         if concession != "utopian_table":
             tokens += _critic_tokens(args)
             tokens += _exploration_tokens(budget, args)

@@ -39,8 +39,13 @@ budget:
   # much), counted in its own data, never in the agents' updates
   # (components/concession_training.py).
   concession_args:
-    utopian_table: {}
+    utopian_table:
+      delta: "advantage"  # as optimq's
     optimq:
+      # The charge, made after each step. "advantage": max_a Q*_i(s_t, a) - Q*_i(s_t, a_t).
+      # "td": max_a Q*_i(s_t, a) - r_i,t - gamma (1 - done) max_a Q*_i(s_t+1, a), whose discounted
+      # episode total telescopes to max_a Q*_i(s_0, a) - G_i (components/budget_concession.py).
+      delta: "advantage"
       hidden_dim: 128
       lr: 0.0005
       buffer_size: 100000
@@ -90,6 +95,7 @@ budget:
       training:
         replay_ratio: 0.08  # gradient steps per critic per new transition it is given
     optimq_additive_linear:  # the same options as optimq
+      delta: "advantage"
       hidden_dim: 128
       lr: 0.0005
       buffer_size: 100000
@@ -133,6 +139,7 @@ budget:
         replay_ratio: 0.08
     optimq_additive_mlp:  # the same options as optimq_additive_linear, plus head_layers
       head_layers: 1  # hidden layers between relu(f(s) + sum_i g_i(a_i)) and the head
+      delta: "advantage"
       hidden_dim: 128
       lr: 0.0005
       buffer_size: 100000

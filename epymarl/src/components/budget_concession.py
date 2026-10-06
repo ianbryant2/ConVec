@@ -7,6 +7,14 @@ A model is chosen by budget.concession, built as
 
 with states (B, state_dim) excluding the budget. Models with add() and
 train() learn; their data/training options go to concession_training.py.
+
+budget.concession_args.<name>.delta picks the charge, made after each step:
+  "advantage"  V_i(s_t) - Q_i(s_t, a_t), the model's own delta (default)
+  "td"         V_i(s_t) - r_i,t - gamma (1 - done) V_i(s_t+1), with
+               V_i(s) = max_a Q_i(s, a) from model.values(states, avail_actions, t)
+Both have the same expected value under the exact Q*. td's discounted
+episode total telescopes to V_i(s_0) - G_i, so a learned model's errors at
+the intermediate states cancel; it adds the env's reward and transition noise.
 """
 from collections import defaultdict
 
@@ -38,6 +46,10 @@ class UtopianTableConcession:
         actions = actions.cpu().numpy()
         return self.utopian_values - self.payoffs[tuple(actions.T)]
 
+    def values(self, states, avail_actions, t):
+        # One-step games: the value after the step is masked out by done.
+        return np.broadcast_to(self.utopian_values, (len(states), len(self.utopian_values)))
+
 
 CONCESSIONS = {
     "utopian_table": UtopianTableConcession,
@@ -45,6 +57,8 @@ CONCESSIONS = {
     "optimq_additive_linear": OptimQAdditiveLinear,
     "optimq_additive_mlp": OptimQAdditiveMLP,
 }
+
+DELTAS = ("advantage", "td")
 
 
 class RunnerConcession:
@@ -64,7 +78,13 @@ class RunnerConcession:
         options = dict(budget["concession_args"].get(name) or {})
         self.data = options.pop("data", None)
         self.training = options.pop("training", None)
+        self.delta = options.pop("delta", "advantage")
+        if self.delta not in DELTAS:
+            raise ValueError(f"Unknown concession delta '{self.delta}' (available: {list(DELTAS)})")
+        self.gamma = args.gamma
         self.model = CONCESSIONS[name](args, args.state_shape - self.budget_dims, **options)
+        if self.delta == "td" and not hasattr(self.model, "values"):
+            raise ValueError(f"concession '{name}' has no values(), which delta 'td' needs")
         self.learns = hasattr(self.model, "train")
         if self.learns and (self.data is None or self.training is None):
             raise ValueError(
@@ -86,23 +106,33 @@ class RunnerConcession:
     def _without_budget(self, states):
         return states[..., : states.shape[-1] - self.budget_dims]
 
-    def deltas(self, states, actions, avail_actions, t):
-        """(B, n_agents) deltas for B envs at step t (states without budget)."""
+    def deltas(self, states, actions, avail_actions, t, rewards, next_states, next_avail, done):
+        """(B, n_agents) deltas for B envs' step t, after it: the states and
+        avail actions before and after it (states without budget), its
+        per-agent env rewards and whether it ended the episode."""
 
         def tensor(x, **kwargs):
             if not isinstance(x, th.Tensor):
                 x = np.asarray(x)
             return th.as_tensor(x, device=self.device, **kwargs)
 
-        deltas = self.model(
-            tensor(states, dtype=th.float32),
-            tensor(actions).reshape(-1, self.n_agents),
-            tensor(avail_actions),
-            t,
-        )
-        if hasattr(deltas, "cpu"):
-            deltas = deltas.cpu().numpy()
-        return np.asarray(deltas, dtype=float)
+        def array(x):
+            if hasattr(x, "cpu"):
+                x = x.cpu().numpy()
+            return np.asarray(x, dtype=float)
+
+        states = tensor(states, dtype=th.float32)
+        avail_actions = tensor(avail_actions)
+        if self.delta == "advantage":
+            return array(self.model(
+                states, tensor(actions).reshape(-1, self.n_agents), avail_actions, t
+            ))
+        value = array(self.model.values(states, avail_actions, t))
+        next_value = array(self.model.values(
+            tensor(next_states, dtype=th.float32), tensor(next_avail), t + 1
+        ))
+        alive = 1.0 - np.asarray(done, dtype=float).reshape(-1, 1)
+        return value - np.asarray(rewards, dtype=float) - self.gamma * alive * next_value
 
     def _valid(self, batch):
         """Mask of a rollout's valid transitions, as the learners build it."""

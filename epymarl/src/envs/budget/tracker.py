@@ -125,8 +125,9 @@ class EpisodeBudget:
                 f"concession has shape {concession.shape}, expected ({self.n_agents},)"
             )
         # The true delta_i = V*_i - Q*_i is >= 0 (Lemma 14 of the writeup), but a
-        # learned estimate may dip below 0; it is spent unclamped so that its
-        # noise cancels over an episode instead of adding up.
+        # learned estimate may dip below 0, as may the "td" delta's sample of it
+        # in a stochastic env; it is spent unclamped so that its noise cancels
+        # over an episode instead of adding up.
         if not np.all(np.isfinite(concession)):
             raise ValueError(f"concession must be finite, got {concession}")
 
