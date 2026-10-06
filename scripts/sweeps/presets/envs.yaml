@@ -30,6 +30,11 @@ envs:
   # Two agents within d count as collided in the reward (default 0.3, the sum
   # of their sizes). d must be in mpe_envs.COLLISION_DISTANCES. `extends` takes
   # the named env's family and settings, then applies these on top.
+  # Long enough for the agents to settle against a critic frozen at 250k
+  # (mpe_explore_decay): 750k steps after the freeze.
+  selfish_spread_long:
+    extends: selfish_spread
+    settings: {t_max: 1_000_000}
   selfish_spread_col0.4:
     extends: selfish_spread
     settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.4-v0"}}
@@ -45,6 +50,17 @@ envs:
   selfish_spread_col1:
     extends: selfish_spread
     settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col1-v0"}}
+  # The race layout (mpe_envs/selfish_spread.py): agents in the left half of a
+  # [-3, 3]^2 board, landmarks in a row on the right 1.2 apart, so they all head
+  # for the first one and whoever gives way pays about 7 (scripted agents). 50
+  # steps, the id's max_cycles. Budgets of 100 never bind: for measuring spend
+  # before choosing real ones.
+  selfish_spread_race:
+    extends: selfish_spread
+    settings:
+      env_args: {key: "mpe_envs:SelfishSpread-3ag-race-v0", time_limit: 50}
+      t_max: 600_000
+      budget: {initial_budget: [100.0, 100.0, 100.0]}
 
   # --- Level-Based Foraging ------------------------------------------------
   # 3 level-1 agents, 2 apples paying 1/2 each, split among the agents loading

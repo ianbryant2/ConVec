@@ -1,0 +1,37 @@
+# selfish_spread_td with budgets c = (12, 30, 30) instead of (1, 50, 50). With
+# c = (1, 50, 50) every seed left agent 0 over budget: the frozen critic puts
+# V_0(s_0) at about -8 and agent 0's discounted return at best about -15, so
+# the td charge (V(s_0) - G per episode) was about 6-7 even in its best seeds
+# (selfish_spread_td_results.ipynb). In those runs agent 0 spent about 6-8 per
+# episode in its good seeds and about 27 in its bad ones, so 12 separates the
+# two. Agents 1 and 2 spent at most about 26, so 30 rarely binds them.
+#
+# The critic and run as in selfish_spread_td: optimq_additive_mlp,
+# double_cross, 0.08 critic steps per transition, greedy exploration only,
+# annealed to nothing and frozen at 250k t_env, no reward_range, td charge,
+# 1M PAC steps.
+#
+#   python scripts/sweeps run selfish_spread_td_c12
+
+seeds: [0, 1, 2, 3, 4]
+
+base:
+  - mpe_optimq
+  - stable
+  - mpe_explore_decay
+  - double_cross
+  - no_reward_range
+  - td_delta
+  - concession:
+      model: optimq_additive_mlp
+      head_layers: 1
+      data: {warmup_steps: 100_000}
+      training: {replay_ratio: 0.08}   # lbf_optimq's, not stable's 0.16
+    budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [selfish_spread_long]
+  # An axis, not base: the env preset's initial_budget overrides base.
+  budget:
+    c12_30_30: {budget: {initial_budget: [12.0, 30.0, 30.0]}}

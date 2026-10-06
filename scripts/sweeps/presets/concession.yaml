@@ -148,3 +148,12 @@ profiles:
           greedy:
             epsilon: anneal
             epsilon_args: {anneal: {start: 1.0, finish: 0.1, anneal_time: 150_000, decay: linear}}
+  # lbf_explore_decay at half the time, for SelfishSpread: exploration
+  # annealed from 4 to 0 over 250k t_env (frozen there), greedy epsilon
+  # reaching 0.1 at 75k.
+  mpe_explore_decay:
+    - lbf_explore_decay
+    - concession:
+        data:
+          explore_args: {anneal: {anneal_time: 250_000}}
+          explore_policy_args: {greedy: {epsilon_args: {anneal: {anneal_time: 75_000}}}}

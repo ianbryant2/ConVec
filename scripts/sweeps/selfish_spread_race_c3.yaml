@@ -1,0 +1,45 @@
+# The race layout (SelfishSpread-3ag-race-v0) with budgets c = (3, 20, 20).
+# selfish_spread_race_critic (budgets of 100) put the frozen critic's start
+# value at about -33 for every agent, matching scripted play: an agent that
+# wins the first landmark gets about -30 discounted and one that gives way the
+# furthest about -43, so winning costs about 0 per episode and giving way about
+# 10 (selfish_spread_race.ipynb, section 4). With 3, agent 0 can afford only to
+# win; with 20, agents 1 and 2 can afford to give way.
+#
+# The critic as in selfish_spread_race_critic: optimq_additive_mlp,
+# double_cross, 0.08 critic steps per transition, greedy exploration only,
+# annealed to nothing and frozen at 500k t_env, no reward_range, td charge.
+# 3M PAC steps (60k 50-step episodes): after 600k the policies were still far
+# from the critic's values (discounted -95 against -33).
+#
+# The entropy as in the LBF runs (lbf_td_converge): annealed from 0.8 to a
+# 0.02 floor over the first half (1.5M), then 1.5M steps at the floor against
+# the frozen critic, for the policies to settle. The mpe preset's is a 0.05
+# floor reached at 80% of the run.
+#
+#   python scripts/sweeps run selfish_spread_race_c3
+
+seeds: [0, 1, 2, 3, 4]
+
+base:
+  - mpe_optimq
+  - stable
+  - lbf_explore_decay
+  - double_cross
+  - no_reward_range
+  - td_delta
+  - concession:
+      model: optimq_additive_mlp
+      head_layers: 1
+      data: {warmup_steps: 100_000}
+      training: {replay_ratio: 0.08}   # lbf_optimq's, not stable's 0.16
+    budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [selfish_spread_race]
+  # An axis, not base: the env and alg presets' initial_budget, t_max and
+  # entropy settings override base.
+  budget:
+    c3_20_20: {budget: {initial_budget: [3.0, 20.0, 20.0]}, t_max: 3_000_000,
+               final_entropy_coef: 0.02, entropy_end_ratio: 0.5}
