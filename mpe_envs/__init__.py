@@ -31,6 +31,13 @@ import gymnasium as gym
 # to get an id for it.
 COLLISION_DISTANCES = (0.3, 0.4, 0.5, 0.6, 0.8, 1.0)
 
+# The race layout (selfish_spread.py): agents in the left half of a [-3, 3]^2
+# board, landmarks in a row on the right, 1.2 apart, so giving way costs about
+# 5-6 per episode. 50 steps lets the agent sent furthest arrive; pass
+# env_args.time_limit=50 with it. Registered for the collision distances the
+# gap allows (at most half of it).
+RACE = {"layout": "race", "board_scale": 3.0, "landmark_gap": 1.2, "max_cycles": 50}
+
 for n in range(2, 11):
     gym.register(
         f"SimpleSpread-{n}ag-v0",
@@ -52,3 +59,15 @@ for n in range(2, 11):
             entry_point="envs.pz_wrapper:PettingZooWrapper",
             kwargs={"module": "mpe_envs.selfish_spread", "N": n, "collision_distance": d},
         )
+    gym.register(
+        f"SelfishSpread-{n}ag-race-v0",
+        entry_point="envs.pz_wrapper:PettingZooWrapper",
+        kwargs={"module": "mpe_envs.selfish_spread", "N": n, **RACE},
+    )
+    for d in COLLISION_DISTANCES:
+        if 2 * d <= RACE["landmark_gap"]:
+            gym.register(
+                f"SelfishSpread-{n}ag-race-col{d:g}-v0",
+                entry_point="envs.pz_wrapper:PettingZooWrapper",
+                kwargs={"module": "mpe_envs.selfish_spread", "N": n, "collision_distance": d, **RACE},
+            )

@@ -16,6 +16,20 @@ collision_distance sets how close two agents must be to count as colliding in
 the reward. The default (None) is simple_spread's: the sum of the two agents'
 sizes, 0.15 + 0.15 = 0.3. It changes only the reward; the physics still keeps
 agents apart using their sizes, so movement and rendering are unchanged.
+
+layout="race" replaces simple_spread's uniform spawns with a race for one
+landmark. On a board of [-board_scale, board_scale]^2 the landmarks sit in a row
+on y = 0 in the right half, landmark_gap apart, starting just right of the
+centre line, and the agents spawn uniformly in the left half at least
+min_agent_gap apart (default: the collision distance). Every agent's nearest
+landmark is then the first one in the row, and whoever gives way travels on
+along the row to a further one. The board is not walled: board_scale only sets
+where things spawn.
+
+landmark_gap must be at least twice the collision distance, so the circles of
+that radius around the landmarks don't overlap: agents sitting on neighbouring
+landmarks don't collide, and an agent passing between two of them can do so
+without colliding with either.
 """
 import numpy as np
 from gymnasium.utils import EzPickle
@@ -24,10 +38,44 @@ from pettingzoo.mpe.simple_spread.simple_spread import Scenario as SpreadScenari
 from pettingzoo.utils.conversions import parallel_wrapper_fn
 
 
+DEFAULT_COLLISION_DISTANCE = 0.3   # simple_spread's: two agent sizes of 0.15
+LAYOUTS = (None, "race")
+
+
 class Scenario(SpreadScenario):
-    def __init__(self, collision_penalty=1.0, collision_distance=None):
+    def __init__(self, collision_penalty=1.0, collision_distance=None, layout=None,
+                 board_scale=1.0, landmark_gap=0.6, min_agent_gap=None):
+        if layout not in LAYOUTS:
+            raise ValueError(f"layout must be one of {LAYOUTS}, got {layout!r}")
         self.collision_penalty = collision_penalty
         self.collision_distance = collision_distance
+        self.layout = layout
+        self.board_scale = board_scale
+        self.landmark_gap = landmark_gap
+        d = DEFAULT_COLLISION_DISTANCE if collision_distance is None else collision_distance
+        self.min_agent_gap = d if min_agent_gap is None else min_agent_gap
+        if layout == "race" and landmark_gap < 2 * d:
+            raise ValueError(f"landmark_gap {landmark_gap} must be at least twice the "
+                             f"collision distance {d}")
+
+    def reset_world(self, world, np_random):
+        super().reset_world(world, np_random)
+        if self.layout != "race":
+            return
+        s = self.board_scale
+        x0 = 0.05 * s   # the row starts, and the agents' half ends, this far from the centre line
+        for k, lm in enumerate(world.landmarks):
+            lm.state.p_pos = np.array([x0 + k * self.landmark_gap, 0.0])
+        placed = []
+        for agent in world.agents:
+            for _ in range(1000):
+                p = np.array([np_random.uniform(-s, -x0), np_random.uniform(-s, s)])
+                if all(np.linalg.norm(p - q) >= self.min_agent_gap for q in placed):
+                    break
+            else:
+                raise RuntimeError("couldn't place the agents min_agent_gap apart")
+            placed.append(p)
+            agent.state.p_pos = p
 
     def is_collision(self, agent1, agent2):
         if self.collision_distance is None:
@@ -52,6 +100,10 @@ class raw_env(SimpleEnv, EzPickle):
         N=3,
         collision_penalty=1.0,
         collision_distance=None,
+        layout=None,
+        board_scale=1.0,
+        landmark_gap=0.6,
+        min_agent_gap=None,
         max_cycles=25,
         continuous_actions=False,
         render_mode=None,
@@ -62,11 +114,16 @@ class raw_env(SimpleEnv, EzPickle):
             N=N,
             collision_penalty=collision_penalty,
             collision_distance=collision_distance,
+            layout=layout,
+            board_scale=board_scale,
+            landmark_gap=landmark_gap,
+            min_agent_gap=min_agent_gap,
             max_cycles=max_cycles,
             continuous_actions=continuous_actions,
             render_mode=render_mode,
         )
-        scenario = Scenario(collision_penalty, collision_distance)
+        scenario = Scenario(collision_penalty, collision_distance, layout, board_scale,
+                            landmark_gap, min_agent_gap)
         world = scenario.make_world(N)
         # local_ratio=None: SimpleEnv then returns scenario.reward unmixed, with
         # no shared global term.
