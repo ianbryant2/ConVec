@@ -12,16 +12,19 @@ exact    LBF moves are deterministic, so the exact per-step charges telescope:
          (it eats both apples alone, as fast as possible) and G_i its
          discounted return. V*_i treats only apples as obstacles (the other
          agents can always step aside under joint control).
-learned  an additive critic (optimq_additive_linear) trained offline on
-         random play with a sacred run's concession settings, as in the
-         explore_only runs, then charged on the same scripted episodes as
-         the budget runner would (target nets, gamma^t delta_t).
+learned  an additive critic (the run's optimq_additive_linear or _mlp) trained
+         offline on random play with a sacred run's concession settings, as in
+         the explore_only runs, or a run's own critic (--load the
+         concession_critic.pt the budget runner saves in its sacred dir), then
+         charged on the same scripted episodes as the budget runner would
+         (target nets, gamma^t delta_t).
 
 The budget is feasible for an episode when some assignment keeps every agent
 within c.
 
     python scripts/lbf_feasibility.py --episodes 500                      # exact only
     python scripts/lbf_feasibility.py --episodes 500 --critic-steps 1500000  # + learned
+    python scripts/lbf_feasibility.py --run <run dir> --load <run dir>/concession_critic.pt --delta td
 """
 import argparse
 import itertools
@@ -230,6 +233,7 @@ def play_scripted(seed, assignment, gamma):
             break
     traj["pos"].append([tuple(p.position) for p in g.players])
     traj["foods"].append([tuple(f) for f in np.argwhere(g.field > 0)])
+    traj["final_state"] = env.get_state()
     traj["done"] = bool(done)
     env.close()
     planned = np.zeros(N_AGENTS)
@@ -306,31 +310,35 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
     "alpha": 0.6, "beta": 0.4}; target its TD target ("double_self" or
     "double_cross"). epsilon(steps) -> epsilon makes the data epsilon-greedy on
     the critic's own heads in turn (None: uniformly random), with epsilon over
-    the steps trained on so far. head_layers > 0 trains optimq_additive_mlp
-    with that many layers after the sum instead of optimq_additive_linear."""
+    the steps trained on so far. The critic is the run's own (optimq_additive_linear
+    or optimq_additive_mlp); head_layers > 0 trains optimq_additive_mlp with that
+    many layers after the sum instead."""
     import torch as th
     from components.optimq_additive import OptimQAdditiveLinear, OptimQAdditiveMLP
 
     config = json.loads((Path(run_dir) / "config.json").read_text())
     budget = config["budget"]
+    if budget["concession"] not in ("optimq_additive_linear", "optimq_additive_mlp"):
+        raise ValueError(f"{run_dir} used concession '{budget['concession']}', expected an additive critic")
     options = dict(budget["concession_args"][budget["concession"]])
     replay_ratio = options.pop("training")["replay_ratio"]
     options.pop("data")
+    options.pop("delta", None)  # the runner's charge, not a model option; see --delta
     if replay is not None:
         options["replay"] = replay
     if target is not None:
         options["target"] = target
-    if budget["concession"] != "optimq_additive_linear":
-        raise ValueError(f"{run_dir} used concession '{budget['concession']}', expected the additive critic")
+    if head_layers:
+        options["head_layers"] = head_layers
     args = SimpleNamespace(n_agents=N_AGENTS, n_actions=N_ACTIONS, gamma=config["gamma"],
                            device="cpu", env_args={"time_limit": TIME_LIMIT})
     th.manual_seed(seed)
     env = make_env(seed)
     env.reset(seed=seed)
-    if head_layers:
-        options["head_layers"] = head_layers
+    if options.get("head_layers"):
         model = OptimQAdditiveMLP(args, len(env.get_state()), **options)
     else:
+        options.pop("head_layers", None)
         model = OptimQAdditiveLinear(args, len(env.get_state()), **options)
     print(f"critic settings from {Path(run_dir).name}: {options}, replay_ratio {replay_ratio}")
 
@@ -366,15 +374,130 @@ def train_critic(total_steps, seed, run_dir=REFERENCE_RUN, log_every=100_000, on
     return model
 
 
-def learned_concessions(model, traj, gamma):
+def learned_concessions(model, traj, gamma, delta="advantage"):
+    """Discounted charges of a scripted episode, as the budget runner's
+    delta ("advantage" or "td", budget_concession.py) would make them."""
     import torch as th
     charged = np.zeros(N_AGENTS)
     avail = th.ones(1, N_AGENTS, N_ACTIONS)
-    for state, actions, t in zip(traj["state"], traj["actions"], traj["t"]):
-        delta = model(th.as_tensor(state[None], dtype=th.float32),
-                      th.as_tensor([actions]), avail, t)
-        charged += gamma**t * delta[0].numpy()
+    next_states = traj["state"][1:] + [traj["final_state"]]
+    last = len(traj["state"]) - 1
+    for k, (state, actions, t) in enumerate(zip(traj["state"], traj["actions"], traj["t"])):
+        s = th.as_tensor(state[None], dtype=th.float32)
+        if delta == "td":
+            # The episode ends at the last step (done or time limit), masking V(s').
+            alive = 0.0 if k == last else 1.0
+            nxt = th.as_tensor(next_states[k][None], dtype=th.float32)
+            d = (model.values(s, avail, t) - th.as_tensor(traj["reward"][k], dtype=th.float32)
+                 - gamma * alive * model.values(nxt, avail, t + 1))
+        else:
+            d = model(s, th.as_tensor([actions]), avail, t)
+        charged += gamma**t * d[0].numpy()
     return charged
+
+
+# --- hand-placed one-step scenarios ---------------------------------------------
+
+def place(env, positions, foods, t=0, spawned=None):
+    """Put the agents and apples (level 1 each) exactly where given, as if at
+    step t, and rebuild the observations the critic sees. Each apple pays
+    1 / spawned to a lone loader (spawned: apples at the episode's start,
+    default len(foods); e.g. 2 with one apple left after the other was eaten)."""
+    g = game(env)
+    g.field[:] = 0
+    for food in foods:
+        g.field[tuple(food)] = 1
+    g._food_spawned = float(spawned or len(foods))
+    for player, pos in zip(g.players, positions):
+        player.position = tuple(pos)
+    g.current_step = t
+    g._game_over = False
+    g._gen_valid_moves()
+    env._env.env._elapsed_steps = t  # GymmaWrapper's TimeLimit
+    env._obs = env._pad_observation(env._env._flatten_obs(g._make_gym_obs()))
+
+
+def one_step(env, positions, foods, actions, t, gamma, spawned=None):
+    """Place a scenario, take one joint action, and return what charging it
+    needs: states, rewards, done, and each agent's exact charge
+    V*_i(s) - r_i - gamma (1 - done) V*_i(s') (deterministic, so the
+    advantage and td charges are the same)."""
+    g = game(env)
+    rows, cols = g.field.shape
+    spawned = spawned or len(foods)
+    place(env, positions, foods, t, spawned)
+    state = env.get_state()
+    _, reward, done, truncated, _ = env.step(list(actions))
+    done = bool(done or truncated)
+    after_pos = [tuple(p.position) for p in g.players]
+    after_foods = [tuple(f) for f in np.argwhere(g.field > 0)]
+    exact = np.array([
+        utopian_value(tuple(positions[i]), foods, gamma, rows, cols, spawned, TIME_LIMIT - t)
+        - reward[i]
+        - gamma * (0.0 if done else utopian_value(after_pos[i], after_foods, gamma, rows, cols,
+                                                  spawned, TIME_LIMIT - t - 1))
+        for i in range(N_AGENTS)
+    ])
+    return {"state": state, "next_state": env.get_state(), "reward": np.asarray(reward, dtype=float),
+            "done": done, "t": t, "actions": list(actions), "exact": exact}
+
+
+def step_charge(model, step, delta, gamma):
+    """A learned model's charge for one step, as the budget runner makes it
+    (budget_concession.py): "advantage" V(s) - Q(s, a), or "td"
+    V(s) - r - gamma (1 - done) V(s')."""
+    import torch as th
+    avail = th.ones(1, N_AGENTS, N_ACTIONS)
+    s = th.as_tensor(step["state"][None], dtype=th.float32)
+    with th.no_grad():
+        if delta == "advantage":
+            d = model(s, th.as_tensor([step["actions"]]), avail, step["t"])
+        else:
+            nxt = th.as_tensor(step["next_state"][None], dtype=th.float32)
+            alive = 0.0 if step["done"] else 1.0
+            d = (model.values(s, avail, step["t"]) - th.as_tensor(step["reward"], dtype=th.float32)
+                 - gamma * alive * model.values(nxt, avail, step["t"] + 1))
+    return d[0].numpy()
+
+
+def charge_map(critics, foods, loader_pos, third_pos, gamma, t=2, load=True, spawned=None):
+    """Charges to an onlooker standing in every free cell, while the loader
+    (standing at loader_pos, next to foods[0]) eats foods[0] alone (load=True)
+    or everyone stays put (load=False). Every assignment of agents to the
+    loader / onlooker / third roles is played; the third stays at third_pos.
+    spawned: apples at the episode's start (sets each apple's payout); pass 2
+    with foods = [one apple] for the last apple of a two-apple episode.
+
+    critics: {name: [(model, delta), ...]} (e.g. one per seed), averaged per name.
+    Returns one row per (role assignment, onlooker cell) with the onlooker's
+    and loader's charge under "exact" and each critic."""
+    env = make_env(0)
+    env.reset(seed=0)
+    rows_, cols = game(env).field.shape
+    apple = tuple(foods[0])
+    out = []
+    for loader, onlooker, third in itertools.permutations(range(N_AGENTS)):
+        for cell in itertools.product(range(rows_), range(cols)):
+            if cell in map(tuple, foods) or cell in (tuple(loader_pos), tuple(third_pos)):
+                continue
+            positions = [None] * N_AGENTS
+            positions[loader], positions[onlooker], positions[third] = loader_pos, cell, third_pos
+            actions = [NONE] * N_AGENTS
+            if load:
+                actions[loader] = LOAD
+            step = one_step(env, positions, foods, actions, t, gamma, spawned)
+            steps_to_apple, _ = bfs(cell, set(adjacent_cells(apple, set(map(tuple, foods)), rows_, cols)),
+                                    set(map(tuple, foods)), rows_, cols)
+            row = {"loader": loader, "onlooker": onlooker, "row": cell[0], "col": cell[1],
+                   "steps_to_apple": steps_to_apple, "next_to_apple": steps_to_apple == 0,
+                   "exact": step["exact"][onlooker], "exact_loader": step["exact"][loader]}
+            for name, models in critics.items():
+                charges = np.mean([step_charge(m, step, d, gamma) for m, d in models], axis=0)
+                row[name] = charges[onlooker]
+                row[f"{name}_loader"] = charges[loader]
+            out.append(row)
+    env.close()
+    return out
 
 
 STEP_KINDS = ["move", "stay", "own load, first apple", "other's load, first apple",
@@ -515,7 +638,9 @@ def main():
     parser.add_argument("--checkpoint-dir", type=Path,
                         help="also save the critic (replay buffers included) at every log point, "
                              "as <dir>/<steps>.pt")
-    parser.add_argument("--load", type=Path, help="use a critic saved with --save instead of training")
+    parser.add_argument("--load", type=Path,
+                        help="use a saved critic instead of training: from --save, or a budget run's "
+                             "concession_critic.pt (pass that run as --run too, for its gamma)")
     parser.add_argument("--per", action="store_true",
                         help="train the critic with prioritised replay (overrides the run's setting)")
     parser.add_argument("--per-alpha", type=float, default=0.6)
@@ -524,7 +649,7 @@ def main():
                         help="the critic's TD target (overrides the run's setting)")
     parser.add_argument("--head-layers", type=int, default=0,
                         help="train optimq_additive_mlp with this many hidden layers after the sum "
-                             "(0: the run's optimq_additive_linear)")
+                             "(0: the run's own critic, linear or MLP)")
     parser.add_argument("--greedy", action="store_true",
                         help="train on epsilon-greedy play on the critic's own heads, in turn per episode, "
                              "instead of uniformly random play (the runner's explore_policy=greedy)")
@@ -532,6 +657,9 @@ def main():
     parser.add_argument("--epsilon-finish", type=float, default=0.1)
     parser.add_argument("--epsilon-anneal", type=int, default=500_000,
                         help="steps over which epsilon decays linearly from start to finish (0: finish throughout)")
+    parser.add_argument("--delta", choices=["advantage", "td"], default="advantage",
+                        help="how the learned critic charges each step (budget.concession_args.<model>.delta); "
+                             "td's episode total is max_a Q(s_0, a) - G")
     parser.add_argument("--per-step", action="store_true",
                         help="break learned vs exact delta down by step (needs a critic)")
     args = parser.parse_args()
@@ -560,7 +688,8 @@ def main():
         exact_probe = np.array([[r["exact"] for r in ep] for ep in probe])
 
         def progress(model, steps):
-            learned = np.array([[learned_concessions(model, r["traj"], gamma) for r in ep] for ep in probe])
+            learned = np.array([[learned_concessions(model, r["traj"], gamma, args.delta) for r in ep]
+                                for ep in probe])
             best = learned[np.arange(len(learned)), (learned - C).max(-1).argmin(-1)]
             err = (learned - exact_probe).mean((0, 1))
             print(f"      two-apple learned charge (best assignment) {best.mean(0).round(3).tolist()}, "
@@ -602,8 +731,9 @@ def main():
         exact = np.array([[r["exact"] for r in ep] for ep in eps])
         summarise("EXACT", exact, labels)
         if model is not None:
-            learned = np.array([[learned_concessions(model, r["traj"], gamma) for r in ep] for ep in eps])
-            summarise("LEARNED", learned, labels)
+            learned = np.array([[learned_concessions(model, r["traj"], gamma, args.delta) for r in ep]
+                                for ep in eps])
+            summarise(f"LEARNED ({args.delta})", learned, labels)
             err = learned - exact
             print(f"learned - exact, per agent: mean {err.mean((0, 1)).round(3).tolist()}, "
                   f"std {err.std((0, 1)).round(3).tolist()}")
