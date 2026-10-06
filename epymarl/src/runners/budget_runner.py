@@ -9,6 +9,8 @@ trained (components/concession_training.py).
 
 Use runner=budget_episode / budget_parallel with --env-config=gymma_budget.
 """
+from pathlib import Path
+
 import numpy as np
 import torch as th
 
@@ -69,6 +71,7 @@ class BudgetRunnerMixin:
         self.concession = None
         self.trainer = None  # only for a learned concession model
         self._warmed_up = False
+        self._concession_saved = False
         self._wrap_envs()
 
     def setup(self, scheme, groups, preprocess, mac):
@@ -122,6 +125,29 @@ class BudgetRunnerMixin:
             self.train_stats.clear()
             self.train_stats.update(train_stats)
         return batch, self._records(batch)
+
+    def save_concession(self, when):
+        """Save a learned concession model as concession_critic.pt in the sacred
+        run dir (results/models/<unique_token>/ when unobserved), once."""
+        if self.trainer is None or self._concession_saved:
+            return
+        self._concession_saved = True
+        directory = next(
+            (Path(o.dir) for o in getattr(getattr(self.logger, "_run_obj", None), "observers", [])
+             if getattr(o, "dir", None)),
+            Path(self.args.local_results_path) / "models" / self.args.unique_token,
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "concession_critic.pt"
+        self.concession.save(path)
+        if getattr(self.logger, "sacred_info", None) is not None:
+            self.logger.sacred_info["concession_critic"] = {"when": when, "t_env": self.t_env}
+        self.logger.console_logger.info(f"Saved the {when} concession critic (t_env {self.t_env}) to {path}")
+
+    def close_env(self):
+        # A model that never froze is saved as it ends.
+        self.save_concession("final")
+        super().close_env()
 
     def _records(self, batch):
         """The last rollout's env rewards and deltas, each (B, T, n_agents)."""

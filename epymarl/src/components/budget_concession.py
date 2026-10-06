@@ -16,6 +16,7 @@ Both have the same expected value under the exact Q*. td's discounted
 episode total telescopes to V_i(s_0) - G_i, so a learned model's errors at
 the intermediate states cancel; it adds the env's reward and transition noise.
 """
+import copy
 from collections import defaultdict
 
 import gymnasium as gym
@@ -183,6 +184,14 @@ class RunnerConcession:
             # Positive bias: the model overcharges, and budgets run out early.
             self.stats["concession_bias"].append(err.mean().item())
             self.stats["concession_abs_err"].append(err.abs().mean().item())
+
+    def save(self, path):
+        """Save the model for scoring later (scripts/lbf_feasibility.py --load),
+        without its replay buffers, so it can't be trained further."""
+        model = copy.copy(self.model)
+        if hasattr(model, "buffers"):
+            model.buffers = []
+        th.save(model, path)
 
     def add(self, transitions):
         """Add transitions to a learned model's buffer."""

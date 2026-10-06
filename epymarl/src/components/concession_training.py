@@ -143,6 +143,8 @@ class ConcessionTrainer:
         self._step_credit = 0.0
         # Exploration episodes played but not used yet: (batch, records, first unused).
         self._spare = None
+        # True once the model gets no more data, and so no more updates.
+        self.frozen = False
 
     def warmup(self, runner):
         """Explore and train for warmup_steps env steps before the agents start."""
@@ -167,6 +169,11 @@ class ConcessionTrainer:
         data += self._explore(runner, self._take("_explore_credit", rate * n))
         self._train(data)
         self.concession.log(runner.t_env, runner.logger)
+        # No policy share and exploration annealed to 0 (the schedules only
+        # decay): the model is final, so save it once.
+        if not self.frozen and self.policy_fraction == 0 and rate == 0:
+            self.frozen = True
+            runner.save_concession("frozen")
 
         if runner.t_env - self.last_log_t >= self.log_interval:
             self.logger.log_stat("concession_explore_rate", rate, runner.t_env)
