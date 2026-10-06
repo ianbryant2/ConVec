@@ -63,3 +63,18 @@ envs:
       test_interval: 14_000
       test_nepisode: 100
       budget: {enabled: true, initial_budget: [0.55, 0.8, 0.8], observe_budget: all}
+  # The same env, run long enough for the agents to settle against a critic
+  # frozen at 500k t_env (lbf_explore_decay): the 1M-step PAC probes had
+  # settled by 150-450k. PAC: 1.5M steps, evaluated every 50k.
+  lbf_3p_2f_budget_short:
+    extends: lbf_3p_2f_budget
+    settings: {t_max: 150_000, test_interval: 5_000}
+  # About an hour per PAC run: 3.5M steps, 3M of them after the critic freezes
+  # (~33 min to the freeze, then ~10 min per 1M steps in lbf_mlp_delta).
+  lbf_3p_2f_budget_mid:
+    extends: lbf_3p_2f_budget
+    settings: {t_max: 350_000, test_interval: 5_000}
+  # Twice _mid, for the agents to converge: PAC 7M steps (~1h45 per run).
+  lbf_3p_2f_budget_long:
+    extends: lbf_3p_2f_budget
+    settings: {t_max: 700_000, test_interval: 5_000}

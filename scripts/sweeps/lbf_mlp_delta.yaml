@@ -1,0 +1,24 @@
+# LBF budget test (envs.yaml lbf_3p_2f_budget_short): the concession charge,
+# advantage (V(s_t) - Q(s_t, a_t)) vs td (V(s_t) - r_t - gamma V(s_t+1)),
+# with the critic trained early and then frozen. The critic: optimq_additive_mlp
+# (one hidden layer after the action sum), double_cross TD target, uniform
+# replay, trained on exploration only: a 100k-step random warmup, then greedy
+# round-robin exploration on its own Q* heads, annealed to nothing by 500k
+# t_env (concession.yaml lbf_explore_decay). PAC then learns against fixed
+# charges until 1.5M.
+
+seeds: [0, 1, 2]
+
+base:
+  - lbf_optimq
+  - lbf_explore_decay
+  - double_cross
+  - concession: {model: optimq_additive_mlp, head_layers: 1}
+    budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [lbf_3p_2f_budget_short]
+  delta:
+    advantage: {}
+    td: td_delta

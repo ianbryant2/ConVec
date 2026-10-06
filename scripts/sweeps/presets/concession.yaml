@@ -52,6 +52,23 @@ profiles:
   # Only the step and target-net changes.
   slow: [stable, {concession: {loss: mse, layer_norm: false, reward_range: null}}]
 
+  # No clamp on the critic's bootstrapped values: reward_range encodes the env's
+  # reward bounds, and the concession critic should not depend on the env.
+  no_reward_range:
+    concession: {reward_range: null}
+
+  # TD target: a critic's target net selects the next action and the other
+  # critic's target net evaluates it (double Q-learning across the two
+  # critics, as delta combines them), instead of double_self.
+  double_cross:
+    concession: {target: double_cross}
+
+  # The charge: V(s_t) - r_t - gamma V(s_t+1) instead of V(s_t) - Q(s_t, a_t).
+  # Its discounted episode total telescopes to V(s_0) - G, so the critic's
+  # errors at the states in between (the max's overestimate among them) cancel.
+  td_delta:
+    concession: {delta: td}
+
   # Prioritised replay: each critic samples its buffer by TD error (its
   # worst-fit agent head), with importance weights. Aimed at the terminal
   # last-apple loads on LBF, whose TD targets are exact but under-fit
@@ -115,3 +132,19 @@ profiles:
     concession: {data: {policy_fraction: 1.0, explore: constant, explore_args: {constant: {rate: 3.0}}}}
   lbf_explore_only:
     concession: {data: {policy_fraction: 0.0, explore: constant, explore_args: {constant: {rate: 4.0}}}}
+  # lbf_explore_only, then frozen: exploration episodes per agent episode
+  # annealed from 4 to 0 over 500k t_env, so the critic gets ~1M transitions
+  # (its gradient steps go with them) and then stops changing. Greedy epsilon
+  # reaches 0.1 at ~150k t_env, when it has seen ~500k transitions (as the
+  # offline runs anneal over 500k critic steps).
+  lbf_explore_decay:
+    concession:
+      data:
+        policy_fraction: 0.0
+        explore: anneal
+        explore_args: {anneal: {start: 4.0, finish: 0.0, anneal_time: 500_000, decay: linear}}
+        explore_policy: greedy
+        explore_policy_args:
+          greedy:
+            epsilon: anneal
+            epsilon_args: {anneal: {start: 1.0, finish: 0.1, anneal_time: 150_000, decay: linear}}

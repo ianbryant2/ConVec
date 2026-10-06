@@ -1,0 +1,27 @@
+# LBF budget test (envs.yaml lbf_3p_2f_budget): the concession charge,
+# advantage (V(s_t) - Q(s_t, a_t)) vs td (V(s_t) - r_t - gamma V(s_t+1)),
+# on the greedy-exploration, double_cross critic. Otherwise lbf_budget's
+# reference setting: potential rule, additive critic trained on exploration
+# only (4 exploration episodes per agent episode, epsilon-greedy on its own
+# Q* heads after the random warmup), with uniform vs prioritised replay.
+
+seeds: [0, 1, 2]
+
+base:
+  - lbf_optimq
+  - lbf_explore_only
+  - greedy
+  - double_cross
+  - concession: {model: optimq_additive_linear}
+    budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [lbf_3p_2f_budget]
+  delta:
+    advantage: {}
+    td: td_delta
+  # How each critic samples its buffer (presets/concession.yaml per).
+  replay:
+    uniform: {}
+    per: per

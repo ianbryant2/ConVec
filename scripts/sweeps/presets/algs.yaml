@@ -6,7 +6,9 @@
 # give every algorithm the same number of gradient updates, not the same env
 # steps: PAC's parallel runner makes one update per 10 episodes, the episode
 # runner one per episode, so PAC gets 10x the steps (e.g. 20M vs 2M in
-# EPyMARL). The env's t_max is the value-based budget.
+# EPyMARL). The env's t_max is the value-based budget. Concession schedules
+# (anneal_time in `concession:` profiles) are not scaled: they pace the
+# critic's own data, which grows with t_env the same way for every alg.
 
 # MPE (SelfishSpread): the change from each plain yaml to its MPE-tuned
 # sibling (pac_dcg_ns_mpe, qmix_ns_mpe, opt_qmix_ns_mpe; the plain VDN configs

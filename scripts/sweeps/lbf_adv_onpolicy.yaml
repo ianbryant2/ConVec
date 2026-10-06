@@ -1,0 +1,27 @@
+# LBF budget test (envs.yaml lbf_3p_2f_budget_mid, 3.5M PAC steps): the
+# advantage charge (V(s_t) - Q(s_t, a_t)) with a critic that also trains on the
+# agents' own episodes, for the whole run. In lbf_mlp_delta the advantage
+# critic trained on exploration only and was frozen at 500k; it overvalued the
+# agents' own actions (which it never saw), and the agents found behaviour it
+# undercharged. Here a quarter of the agents' episodes go to the critic
+# throughout, so it never freezes and keeps covering what the agents do.
+#
+# Otherwise as lbf_td_long, for comparison: optimq_additive_mlp, double_cross,
+# uniform replay, the random warmup and greedy round-robin exploration
+# annealed to nothing by 500k t_env, no reward_range. The critic is saved as
+# concession_critic.pt in each run's sacred dir when the run ends.
+
+seeds: [0, 1, 2]
+
+base:
+  - lbf_optimq
+  - lbf_explore_decay
+  - double_cross
+  - no_reward_range
+  - concession: {model: optimq_additive_mlp, head_layers: 1, delta: advantage,
+                 data: {policy_fraction: 0.25}}
+    budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [lbf_3p_2f_budget_mid]
