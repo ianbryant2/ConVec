@@ -12,3 +12,8 @@ archive/
 .ipynb_checkpoints/
 
 .vscode
+
+# Scratch analysis and local settings
+*.ipynb
+/*.png
+.claude/settings.local.json
