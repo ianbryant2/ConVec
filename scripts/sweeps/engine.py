@@ -403,7 +403,10 @@ def states(runs, records=None):
 
     out = []
     for run in runs:
-        same = by_hash.get((run.hash, run.seed), [])
+        # The hash covers the overrides, not the --config alg, so two algs with
+        # the same overrides (e.g. vdn_ns and qmix_ns) share one.
+        same = [r for r in by_hash.get((run.hash, run.seed), [])
+                if r.tag.get("axes", {}).get("alg") == run.alg]
         done = [r for r in same if r.status == "COMPLETED"]
         if done:
             out.append((run, "done", done[-1]))
