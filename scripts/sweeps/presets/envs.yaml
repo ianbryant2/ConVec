@@ -15,6 +15,22 @@ envs:
       test_interval: 1_000       # -> ~50 greedy evaluation points per curve
       budget: {enabled: true, initial_budget: [6.0, 6.0, 5.0]}
 
+  # --- SelfishSpread race (50-step MPE episodes) -----------------------------
+  # 3 agents in the left half of a [-3, 3]^2 board, landmarks in a row on the
+  # right 1.2 apart (mpe_envs/selfish_spread.py), so they all head for the
+  # first one and whoever gives way travels on to a further one. The frozen
+  # critic values the start at about -33 for every agent: winning the first
+  # landmark costs about 0 per episode and giving way the furthest about 10.
+  # With c = 3 agent 0 can afford only to win; with 20, agents 1 and 2 can
+  # afford to give way. 3M steps (60k episodes), evaluated every 25k.
+  selfish_spread_race:
+    family: mpe
+    settings:
+      env_args: {key: "mpe_envs:SelfishSpread-3ag-race-v0", time_limit: 50}
+      t_max: 3_000_000
+      test_interval: 25_000
+      budget: {enabled: true, initial_budget: [3.0, 20.0, 20.0]}
+
   # --- Level-Based Foraging ------------------------------------------------
   # 3 level-1 agents, 2 apples paying 1/2 each, split among the agents loading
   # it (lbf_envs/__init__.py). Agent 0 should eat one apple alone and agents 1

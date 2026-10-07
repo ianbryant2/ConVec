@@ -16,6 +16,10 @@ algs:
     # The plain yaml defaults.
     matrix: {initial_entropy_coef: 20.0, final_entropy_coef: 0.01, lr: 0.0003, hidden_dim: 64,
              buffer_size: 10, target_update_interval_or_tau: 0.01, use_rnn: false}
+    # The SelfishSpread race: LBF's entropy start and floor, reached at half the
+    # run, with a higher learning rate.
+    mpe: {initial_entropy_coef: 0.8, final_entropy_coef: 0.02, entropy_end_ratio: 0.5,
+          lr: 0.0005, hidden_dim: 128}
     # The Pareto-AC paper's "LBF 3 Ag." column (Christianos et al. 2023, Table
     # 3, arXiv 2209.14344) with its n-step of 5 (Section 4.5). Evaluation
     # samples the policy, as both papers do for stochastic-policy algorithms.

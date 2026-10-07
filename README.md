@@ -16,8 +16,9 @@ All algorithms are the non-parameter-shared (`_ns`) variants.
 |---|---|---|---|
 | [matrix_table1](scripts/sweeps/matrix_table1.yaml) | Budget Table 1: one-step 3-agent game, $c = (6, 6, 5)$, only $(A, A, A)$ within budget | PAC, MAPPO, VDN, QMIX | 5 |
 | [lbf_td_converge](scripts/sweeps/lbf_td_converge.yaml) | Level-Based Foraging 5x5, 3 agents, 2 apples, $c = (0.55, 0.8, 0.8)$ | PAC (7M steps) | 5 |
+| [selfish_spread_race](scripts/sweeps/selfish_spread_race.yaml) | SelfishSpread race: 3 agents race for the first of a row of landmarks, $c = (3, 20, 20)$ | PAC (3M steps) | 5 |
 
-Both use the same concession critic and budget rule:
+All use the same concession critic and budget rule:
 
 - **Critic**: `optimq_additive_mlp`, with state and per-agent action
   embeddings added, then one hidden layer. It is trained only on its own
@@ -45,6 +46,7 @@ python3.10 -m venv .venv
 ```bash
 .venv/bin/python scripts/sweeps run matrix_table1
 .venv/bin/python scripts/sweeps run lbf_td_converge
+.venv/bin/python scripts/sweeps run selfish_spread_race
 
 .venv/bin/python scripts/sweeps status <sweep> --list    # which runs are done, and their sacred dirs
 .venv/bin/python scripts/sweeps show <sweep> alg=<alg>   # a run's resolved settings and command
@@ -67,4 +69,5 @@ their axis options as columns.
 | [epymarl/src/config/envs/gymma_budget.yaml](epymarl/src/config/envs/gymma_budget.yaml) | Every budget and critic option, with defaults |
 | [matrix_envs/](matrix_envs/) | One-step matrix games as gymnasium envs, including Budget Table 1 (`budget_table1` in [games.py](matrix_envs/games.py)) |
 | [lbf_envs/](lbf_envs/), [lb-foraging/](lb-foraging/) | The LBF budget env, on a vendored lb-foraging |
+| [mpe_envs/](mpe_envs/) | The SelfishSpread race: PettingZoo's simple_spread with individual rewards and a race layout |
 | [scripts/sweeps/](scripts/sweeps/) | The sweeps and their presets; format and merge order in [engine.py](scripts/sweeps/engine.py) |
