@@ -2,44 +2,20 @@
 # src/config/algs/<alg>.yaml (the --config name). A run gets algs[alg][family]
 # for its env's family; a family missing here is an error.
 #
-# step_scale multiplies t_max and test_interval for that family. Both papers
-# give every algorithm the same number of gradient updates, not the same env
-# steps: PAC's parallel runner makes one update per 10 episodes, the episode
-# runner one per episode, so PAC gets 10x the steps (e.g. 20M vs 2M in
-# EPyMARL). The env's t_max is the value-based budget. Concession schedules
-# (anneal_time in `concession:` profiles) are not scaled: they pace the
-# critic's own data, which grows with t_env the same way for every alg.
-
-# MPE (SelfishSpread): the change from each plain yaml to its MPE-tuned
-# sibling (pac_dcg_ns_mpe, qmix_ns_mpe, opt_qmix_ns_mpe; the plain VDN configs
-# differ from their QMIX ones only in the mixer).
-_qmix_mpe: &qmix_mpe
-  epsilon_anneal_time: 200_000
-  lr: 0.0003
-  hidden_dim: 128
-  target_update_interval_or_tau: 0.01
-  use_rnn: true
-
-# LBF: EPyMARL's LBF settings without parameter sharing (Papoudakis et al.
-# 2021, Tables 27 and 29, arXiv 2006.07869).
-_vdn_lbf: &vdn_lbf
-  epsilon_anneal_time: 50_000
-  evaluation_epsilon: 0.05
-  lr: 0.0001
-  hidden_dim: 64
-  buffer_size: 5000
-  standardise_rewards: true
-  use_rnn: true
+# step_scale multiplies t_max and test_interval for that family. Every
+# algorithm gets the same number of gradient updates, not the same env steps:
+# the parallel runner (PAC, MAPPO) makes one update per 10 episodes, the
+# episode runner (VDN, QMIX) one per episode, so the parallel-runner algs get
+# 10x the steps. The env's t_max is the episode-runner budget. Concession
+# schedules (anneal_time in `concession:` profiles) are not scaled: they pace
+# the critic's own data, which grows with t_env the same way for every alg.
 
 algs:
   pac_ns:
-    step_scale: {lbf: 10}
-    # The plain yaml defaults, as used by the archived matrix sweep.
+    step_scale: {matrix: 10, lbf: 10}
+    # The plain yaml defaults.
     matrix: {initial_entropy_coef: 20.0, final_entropy_coef: 0.01, lr: 0.0003, hidden_dim: 64,
              buffer_size: 10, target_update_interval_or_tau: 0.01, use_rnn: false}
-    # Entropy floor 0.05 instead of 0.01: the LBF PAC runs collapsed as their
-    # entropy reached its 0.02 floor.
-    mpe: {initial_entropy_coef: 0.8, final_entropy_coef: 0.05, lr: 0.0005, hidden_dim: 128}
     # The Pareto-AC paper's "LBF 3 Ag." column (Christianos et al. 2023, Table
     # 3, arXiv 2209.14344) with its n-step of 5 (Section 4.5). Evaluation
     # samples the policy, as both papers do for stochastic-policy algorithms.
@@ -47,27 +23,15 @@ algs:
           lr: 0.0003, hidden_dim: 128, q_nstep: 5, target_update_interval_or_tau: 0.01,
           test_greedy: false, use_rnn: false}
 
-  opt_vdn_ns:
-    matrix: {epsilon_anneal_time: 50_000, normal_anneal_time: 50_000, lr: 0.0005,
-             hidden_dim: 64, target_update_interval: 1, buffer_size: 32, use_rnn: false}
-    mpe: {epsilon_anneal_time: 200_000, normal_anneal_time: 200_000, lr: 0.0003,
-          hidden_dim: 128, target_update_interval: 200, buffer_size: 5000, use_rnn: true}
-    # No published LBF settings: VDN's (its plain yaml differs from vdn_ns
-    # only in the optimistic parts), with the optimistic weight's anneal
-    # matched to epsilon's. It keeps unstandardised rewards, since
-    # opt_q_learner ignores standardise_rewards.
-    lbf: {epsilon_anneal_time: 50_000, normal_anneal_time: 50_000, evaluation_epsilon: 0.05,
-          lr: 0.0001, hidden_dim: 64, buffer_size: 5000, target_update_interval: 200,
-          use_rnn: true}
+  mappo_ns:
+    step_scale: {matrix: 10}
+    # The plain yaml defaults.
+    matrix: {}
 
   qmix_ns:
     matrix: {epsilon_anneal_time: 50_000, lr: 0.0005, hidden_dim: 64,
              target_update_interval_or_tau: 200, buffer_size: 5000, use_rnn: false}
-    mpe: *qmix_mpe
-    lbf: {<<: *vdn_lbf, target_update_interval_or_tau: 0.01}
 
   vdn_ns:
     matrix: {epsilon_anneal_time: 50_000, lr: 0.0005, hidden_dim: 64,
              target_update_interval_or_tau: 200, buffer_size: 5000, use_rnn: false}
-    mpe: *qmix_mpe
-    lbf: {<<: *vdn_lbf, target_update_interval_or_tau: 200}

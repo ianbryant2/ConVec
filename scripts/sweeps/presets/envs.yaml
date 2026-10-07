@@ -1,7 +1,8 @@
 # Every env a sweep can use: its family (picks the alg settings in algs.yaml
 # and the step scaling) and its settings. Budget envs set only what belongs to
 # the env (enabled, initial_budget); the rule and concession model are the
-# sweep's choice.
+# sweep's choice. `extends` takes the named env's family and settings, then
+# applies these on top.
 
 envs:
   # --- matrix games (one-step) -------------------------------------------------
@@ -14,83 +15,19 @@ envs:
       test_interval: 1_000       # -> ~50 greedy evaluation points per curve
       budget: {enabled: true, initial_budget: [6.0, 6.0, 5.0]}
 
-  # --- SelfishSpread (25-step MPE episodes) --------------------------------
-  # 3 agents: agent 0 has priority (budget 1, about a typical conflict), the
-  # others give way (50 each, effectively unconstrained). No payoff table, so
-  # delta comes from a learned critic. 300k steps: OptimQ diverged within 25k
-  # (VDN) and 150k (PAC) steps in the 1M-step runs, so this is enough to see
-  # whether a setting stays stable.
-  selfish_spread:
-    family: mpe
-    settings:
-      env_args: {key: "mpe_envs:SelfishSpread-3ag-v0", time_limit: 25}
-      t_max: 300_000
-      test_interval: 25_000
-      budget: {enabled: true, initial_budget: [1.0, 50.0, 50.0]}
-  # Two agents within d count as collided in the reward (default 0.3, the sum
-  # of their sizes). d must be in mpe_envs.COLLISION_DISTANCES. `extends` takes
-  # the named env's family and settings, then applies these on top.
-  # Long enough for the agents to settle against a critic frozen at 250k
-  # (mpe_explore_decay): 750k steps after the freeze.
-  selfish_spread_long:
-    extends: selfish_spread
-    settings: {t_max: 1_000_000}
-  selfish_spread_col0.4:
-    extends: selfish_spread
-    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.4-v0"}}
-  selfish_spread_col0.5:
-    extends: selfish_spread
-    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.5-v0"}}
-  selfish_spread_col0.6:
-    extends: selfish_spread
-    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.6-v0"}}
-  selfish_spread_col0.8:
-    extends: selfish_spread
-    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col0.8-v0"}}
-  selfish_spread_col1:
-    extends: selfish_spread
-    settings: {env_args: {key: "mpe_envs:SelfishSpread-3ag-col1-v0"}}
-  # The race layout (mpe_envs/selfish_spread.py): agents in the left half of a
-  # [-3, 3]^2 board, landmarks in a row on the right 1.2 apart, so they all head
-  # for the first one and whoever gives way pays about 7 (scripted agents). 50
-  # steps, the id's max_cycles. Budgets of 100 never bind: for measuring spend
-  # before choosing real ones.
-  selfish_spread_race:
-    extends: selfish_spread
-    settings:
-      env_args: {key: "mpe_envs:SelfishSpread-3ag-race-v0", time_limit: 50}
-      t_max: 600_000
-      budget: {initial_budget: [100.0, 100.0, 100.0]}
-
   # --- Level-Based Foraging ------------------------------------------------
   # 3 level-1 agents, 2 apples paying 1/2 each, split among the agents loading
   # it (lbf_envs/__init__.py). Agent 0 should eat one apple alone and agents 1
   # and 2 share the other, conceding about [0.47, 0.75, 0.75]; the budget allows
   # that and rules out the alternatives (the closest, all three sharing the
-  # second apple, sits right at 0.8 for agents 1 and 2). t_max is the
-  # value-based budget; PAC's is 10x (algs.yaml step_scale): 14M as in the
-  # Pareto-AC paper's LBF runs, 56k iterations of 25-step episodes. 100
-  # evaluations of 100 episodes (EPyMARL's evaluation size).
+  # second apple, sits right at 0.8 for agents 1 and 2). Long enough for the
+  # agents to converge: PAC 7M steps (~1h45 per run), evaluated every 50k with
+  # 100 episodes (EPyMARL's evaluation size).
   lbf_3p_2f_budget:
     family: lbf
     settings:
       env_args: {key: "lbf_envs:Foraging-5x5-3p-2f-budget-v0", time_limit: 25}
-      t_max: 1_400_000
-      test_interval: 14_000
+      t_max: 700_000
+      test_interval: 5_000
       test_nepisode: 100
       budget: {enabled: true, initial_budget: [0.55, 0.8, 0.8], observe_budget: all}
-  # The same env, run long enough for the agents to settle against a critic
-  # frozen at 500k t_env (lbf_explore_decay): the 1M-step PAC probes had
-  # settled by 150-450k. PAC: 1.5M steps, evaluated every 50k.
-  lbf_3p_2f_budget_short:
-    extends: lbf_3p_2f_budget
-    settings: {t_max: 150_000, test_interval: 5_000}
-  # About an hour per PAC run: 3.5M steps, 3M of them after the critic freezes
-  # (~33 min to the freeze, then ~10 min per 1M steps in lbf_mlp_delta).
-  lbf_3p_2f_budget_mid:
-    extends: lbf_3p_2f_budget
-    settings: {t_max: 350_000, test_interval: 5_000}
-  # Twice _mid, for the agents to converge: PAC 7M steps (~1h45 per run).
-  lbf_3p_2f_budget_long:
-    extends: lbf_3p_2f_budget
-    settings: {t_max: 700_000, test_interval: 5_000}
