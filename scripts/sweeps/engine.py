@@ -425,13 +425,13 @@ def states(runs, records=None):
     return out
 
 
-# --- notebook API ---------------------------------------------------------
+# --- Python API -----------------------------------------------------------
 
 def runs(sweep, seeds=None, overrides=None, **where):
     """One row per run of a sweep: its axis options, seed, state and sacred
     location (path is None until it has run). overrides is --set's dict.
 
-        runs("lbf_budget", rule="increment")
+        runs("matrix_table1", alg="pac_ns")
     """
     import pandas as pd
     s = load_sweep(sweep)

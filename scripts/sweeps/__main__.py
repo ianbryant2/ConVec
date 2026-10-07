@@ -4,7 +4,7 @@ from pathlib import Path
 
 if not __package__:
     # Run as `python scripts/sweeps`: import the package from scripts/, which
-    # also makes load_results importable, as in the notebooks.
+    # also makes load_results importable.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from sweeps.engine import main
 else:

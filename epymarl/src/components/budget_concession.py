@@ -186,8 +186,8 @@ class RunnerConcession:
             self.stats["concession_abs_err"].append(err.abs().mean().item())
 
     def save(self, path):
-        """Save the model for scoring later (scripts/lbf_feasibility.py --load),
-        without its replay buffers, so it can't be trained further."""
+        """Save the model for scoring later, without its replay buffers, so it
+        can't be trained further."""
         model = copy.copy(self.model)
         if hasattr(model, "buffers"):
             model.buffers = []

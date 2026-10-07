@@ -15,7 +15,7 @@ class PettingZooWrapper(gym.Env):
 
     def __init__(self, lib_name=None, env_name=None, module=None, **kwargs):
         # module: import path of a PettingZoo-style env module outside the
-        # pettingzoo package (e.g. mpe_envs.selfish_spread).
+        # pettingzoo package.
         env = importlib.import_module(module or f"pettingzoo.{lib_name}.{env_name}")
         self._env = env.parallel_env(**kwargs)
         self._env.reset()

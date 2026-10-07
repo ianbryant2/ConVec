@@ -9,16 +9,16 @@ SACRED = PROJECT / "epymarl" / "results" / "sacred"
 
 TIME_KEY = "t"
 
-# Columns identifying one training run, shared with plotting.RUN_KEYS. `alg` is
-# the sacred results directory name (the yaml's `name:`, e.g. pac_sarsa_max_ns,
-# which differs from the --config name pac_max_ns); `env` is the env key as
-# stored, e.g. "lbf_envs:Foraging-5x5-3p-1f-flat-v0"; `run` is sacred's run
+# Columns identifying one training run. `alg` is the sacred results directory
+# name (the yaml's `name:`, e.g. pac_sarsa_ns, which differs from the --config
+# name pac_ns); `env` is the env key as stored, e.g.
+# "lbf_envs:Foraging-5x5-3p-2f-budget-v0"; `run` is sacred's run
 # number, the only thing separating two runs with the same seed.
 RUN_KEYS = ["alg", "env", "seed", "run"]
 
 
 def run_dir(alg, env, index, sacred=SACRED):
-    """Path of one sacred run, e.g. ("pac_sarsa_max_ns", "mpe_envs:SimpleSpread-4ag-v0", 1)."""
+    """Path of one sacred run, e.g. ("pac_sarsa_ns", "matrix_envs:budget-table1-3p-v0", 1)."""
     path = Path(sacred) / alg / env / str(index)
     if not path.is_dir():
         raise FileNotFoundError(f"no sacred run at {path}")
@@ -126,11 +126,9 @@ def load_runs(keys, algs=None, envs=None, seeds=None, sacred=SACRED, status="COM
               config_keys=(), skip_missing=False, dropna=False):
     """Long frame of training curves: one row per (run, timestep).
 
-    Columns are [*RUN_KEYS, TIME_KEY, *keys, *config_keys, duration_s] -- the
-    shape `plotting.panel` expects, so a figure is a filter plus a `hue`:
+    Columns are [*RUN_KEYS, TIME_KEY, *keys, *config_keys, duration_s]:
 
         df = load_runs(["test_return_mean"], config_keys=["q_nstep"])
-        panel(df[df.env == env], y="test_return_mean", hue="q_nstep")
 
     `skip_missing` tolerates runs that predate one of the keys (those rows get
     NaN instead of raising); `dropna` keeps only timesteps where every key has a
