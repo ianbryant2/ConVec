@@ -7,7 +7,7 @@ per-agent rewards that `gymma` scalarises when common_reward=True.
 
 Run from the epymarl directory with this project's root on PYTHONPATH:
 
-    PYTHONPATH=/path/to/PAC-action_scaling python src/main.py \
+    PYTHONPATH=/path/to/this/repo python src/main.py \
         --config=qmix --env-config=gymma with \
         env_args.time_limit=1 env_args.key="matrix_envs:climbing-2p-v0" \
         reward_scalarisation="mean"

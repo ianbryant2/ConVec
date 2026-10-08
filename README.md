@@ -1,4 +1,4 @@
-# PAC action scaling: concession budgets
+# ConVec
 
 Multi-agent RL with a per-agent **concession budget**: each step, agent $i$ is
 charged its concession $\delta_i = V^*_i(s) - Q^*_i(s, a)$, how much the joint
