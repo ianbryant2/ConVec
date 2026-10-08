@@ -17,3 +17,5 @@ archive/
 *.ipynb
 /*.png
 .claude/settings.local.json
+
+figures/

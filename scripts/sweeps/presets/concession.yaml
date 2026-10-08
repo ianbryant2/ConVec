@@ -43,7 +43,7 @@ profiles:
   # no more data and is frozen: the agents then learn against fixed charges.
   # replay_ratio: critic gradient steps per critic per new transition.
 
-  # LBF, and the SelfishSpread race: a 100k-step warmup, exploration annealed
+  # LBF: a 100k-step warmup, exploration annealed
   # from 4 to 0 over 500k t_env (~1M transitions), epsilon from 1.0 to 0.1
   # over 150k.
   lbf_critic_data:

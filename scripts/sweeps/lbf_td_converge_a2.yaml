@@ -1,0 +1,18 @@
+# lbf_td_converge_a0 on envs.yaml lbf_3p_2f_budget_a2: agent 2 eats alone, c = (0.8, 0.8, 0.55).
+# Everything else as lbf_td_converge_a0.
+#
+#   python scripts/sweeps run lbf_td_converge_a2
+
+seeds: [0, 1, 2, 3, 4]
+
+base:
+  - critic
+  - lbf_critic_data
+  - budget: {rule: joint_overspend_potential}
+
+axes:
+  alg: [pac_ns]
+  env: [lbf_3p_2f_budget_a2]
+  # An axis, not base: the alg preset (entropy_end_ratio 1.0) overrides base.
+  entropy:
+    half: {entropy_end_ratio: 0.5}

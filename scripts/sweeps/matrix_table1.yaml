@@ -1,7 +1,7 @@
 # Budget Table 1 (envs.yaml table1): the one-step 3-agent game with budgets
 # c = (6, 6, 5), under which only (A, A, A) stays within budget, and the
-# joint_overspend_potential rule. PAC and MAPPO (parallel runner, 500k steps)
-# against VDN and QMIX (episode runner, 50k steps): the same number of
+# joint_overspend_potential rule. PAC and MAPPO (parallel runner, 2M steps)
+# against VDN and QMIX (episode runner, 200k steps): the same number of
 # gradient updates (algs.yaml step_scale). 5 seeds.
 #
 # The critic is the same as on LBF (concession.yaml `critic`), trained on
@@ -19,3 +19,9 @@ base:
 axes:
   alg: [pac_ns, mappo_ns, vdn_ns, qmix_ns]
   env: [table1]
+  # An axis, not base: the env preset (t_max 50k) is applied after base and
+  # would win. This is the episode-runner budget; step_scale makes it 10x for
+  # PAC and MAPPO (200k -> 2M, eval every 20k). 50k is the env preset's own
+  # budget, the same as matrix_welfare (500k steps for PAC, eval every 10k).
+  steps:
+    50k: {t_max: 50_000, test_interval: 1_000}

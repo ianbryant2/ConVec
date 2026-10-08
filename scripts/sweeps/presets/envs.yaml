@@ -15,21 +15,13 @@ envs:
       test_interval: 1_000       # -> ~50 greedy evaluation points per curve
       budget: {enabled: true, initial_budget: [6.0, 6.0, 5.0]}
 
-  # --- SelfishSpread race (50-step MPE episodes) -----------------------------
-  # 3 agents in the left half of a [-3, 3]^2 board, landmarks in a row on the
-  # right 1.2 apart (mpe_envs/selfish_spread.py), so they all head for the
-  # first one and whoever gives way travels on to a further one. The frozen
-  # critic values the start at about -33 for every agent: winning the first
-  # landmark costs about 0 per episode and giving way the furthest about 10.
-  # With c = 3 agent 0 can afford only to win; with 20, agents 1 and 2 can
-  # afford to give way. 3M steps (60k episodes), evaluated every 25k.
-  selfish_spread_race:
-    family: mpe
+  # Table 1 with c = (20, 20, 20): no payoff exceeds 16, so every joint action
+  # stays within budget and the best feasible cell is the social-welfare
+  # optimum, (B, A, B) at 32.
+  table1_welfare:
+    extends: table1
     settings:
-      env_args: {key: "mpe_envs:SelfishSpread-3ag-race-v0", time_limit: 50}
-      t_max: 3_000_000
-      test_interval: 25_000
-      budget: {enabled: true, initial_budget: [3.0, 20.0, 20.0]}
+      budget: {initial_budget: [20.0, 20.0, 20.0]}
 
   # --- Level-Based Foraging ------------------------------------------------
   # 3 level-1 agents, 2 apples paying 1/2 each, split among the agents loading
@@ -47,3 +39,22 @@ envs:
       test_interval: 5_000
       test_nepisode: 100
       budget: {enabled: true, initial_budget: [0.55, 0.8, 0.8], observe_budget: all}
+
+  # The same budgets permuted: spawns are random, so the agents are
+  # interchangeable and the tight 0.55 picks who eats an apple alone.
+  lbf_3p_2f_budget_a1:
+    extends: lbf_3p_2f_budget
+    settings:
+      budget: {initial_budget: [0.8, 0.55, 0.8]}
+
+  lbf_3p_2f_budget_a2:
+    extends: lbf_3p_2f_budget
+    settings:
+      budget: {initial_budget: [0.8, 0.8, 0.55]}
+
+  # c = 1.5 for every agent: an agent's return is at most 1, so no outcome is
+  # ruled out and nobody is singled out to eat alone.
+  lbf_3p_2f_budget_loose:
+    extends: lbf_3p_2f_budget
+    settings:
+      budget: {initial_budget: [1.5, 1.5, 1.5]}
