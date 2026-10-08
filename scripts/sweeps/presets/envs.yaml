@@ -51,10 +51,3 @@ envs:
     extends: lbf_3p_2f_budget
     settings:
       budget: {initial_budget: [0.8, 0.8, 0.55]}
-
-  # c = 1.5 for every agent: an agent's return is at most 1, so no outcome is
-  # ruled out and nobody is singled out to eat alone.
-  lbf_3p_2f_budget_loose:
-    extends: lbf_3p_2f_budget
-    settings:
-      budget: {initial_budget: [1.5, 1.5, 1.5]}
